@@ -1,0 +1,47 @@
+<!-- Globe widget markup: paste this into a Webflow Embed element. -->
+<div class="wf-globe-widget" data-globe-widget>
+  <div class="wf-globe-widget__frame">
+    <canvas class="wf-globe-widget__canvas" data-globe-canvas aria-label="Interactive rotating globe"></canvas>
+
+    <form class="wf-globe-widget__search" data-country-search-form role="search" autocomplete="off">
+      <input
+        class="wf-globe-widget__input"
+        data-country-search-input
+        type="text"
+        placeholder="Search countries"
+        aria-label="Search countries"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-controls="countrySuggestions"
+        aria-expanded="false"
+        spellcheck="false"
+      >
+      <button class="wf-globe-widget__search-clear" data-country-search-clear type="button" aria-label="Clear search" hidden>
+        <span class="wf-globe-widget__search-clear-icon" aria-hidden="true"></span>
+      </button>
+      <div class="wf-globe-widget__suggestions" data-country-suggestions role="listbox" aria-label="Country suggestions" hidden></div>
+    </form>
+
+    <div class="wf-globe-widget__zoom" aria-label="Zoom controls">
+      <button class="wf-globe-widget__zoom-button" data-zoom-in type="button" aria-label="Zoom in">+</button>
+      <button class="wf-globe-widget__zoom-button" data-zoom-out type="button" aria-label="Zoom out">-</button>
+    </div>
+
+    <div class="wf-globe-widget__hud">
+      <span class="wf-globe-widget__hud-spacer" aria-hidden="true"></span>
+      <span class="wf-globe-widget__label" data-country-label aria-live="polite">Select a country</span>
+      <button class="wf-globe-widget__hud-clear" data-clear-selection type="button" aria-label="Deselect country" hidden>
+        <span class="wf-globe-widget__hud-clear-icon" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <p class="wf-globe-widget__status" data-globe-status role="alert" hidden></p>
+  </div>
+</div>
+
+<!-- Site/Page custom code: replace the /assets/... URLs with your hosted file URLs. -->
+<link rel="stylesheet" href="/assets/globe-widget.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
+<script src="/assets/countries-110m.js"></script>
+<script src="/assets/globe-widget.js"></script>
