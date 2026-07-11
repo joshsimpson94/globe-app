@@ -1,6 +1,6 @@
 # Webflow Globe Widget
 
-This folder contains the Webflow-ready version of the globe.
+This folder contains the Webflow-ready globe.
 
 ## Files
 
