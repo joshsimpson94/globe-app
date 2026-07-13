@@ -16,6 +16,9 @@
   box-shadow: none;
   color: var(--wf-globe-text);
   font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.2;
   container-type: inline-size;
   overflow: hidden;
 }
@@ -200,7 +203,8 @@
 
 .wf-globe-widget__zoom-button::before {
   display: block;
-  font-size: 1.75rem;
+  font-size: 28px;
+  font-weight: 400;
   line-height: 1;
 }
 
