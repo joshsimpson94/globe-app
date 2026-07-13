@@ -118,6 +118,11 @@
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
 
+    function getAutoRotationSpeed() {
+      const zoomProgress = clamp((globe.zoom - globe.minZoom) / (globe.maxZoom - globe.minZoom), 0, 1);
+      return AUTO_ROTATION_SPEED + (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
+    }
+
     function setSearchExpanded(isExpanded) {
       countrySearchInput.setAttribute("aria-expanded", isExpanded ? "true" : "false");
     }
@@ -339,7 +344,7 @@
         } else {
           globe.pitch = clamp(nextPitch, -90, 90);
         }
-        const targetVelocityX = selectedCountry ? SELECTED_COUNTRY_ROTATION_SPEED : AUTO_ROTATION_SPEED;
+        const targetVelocityX = selectedCountry ? SELECTED_COUNTRY_ROTATION_SPEED : getAutoRotationSpeed();
         globe.velocityX += (targetVelocityX - globe.velocityX) * 0.02;
         globe.velocityY *= 0.996;
       }
