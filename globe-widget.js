@@ -286,7 +286,10 @@
       projection.rotate([globe.yaw, globe.pitch]);
       projection.scale(globe.radius);
 
-      context.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.restore();
       drawAtmosphere();
       drawSphere();
       drawWorld();
