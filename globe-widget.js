@@ -101,6 +101,7 @@
     let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
     let activeSuggestionIndex = -1;
+    let isAnimationStarted = false;
 
     function setSearchExpanded(isExpanded) {
       countrySearchInput.setAttribute("aria-expanded", isExpanded ? "true" : "false");
@@ -279,20 +280,28 @@
       context.restore();
     }
 
-    function render() {
-      globe.zoom += (globe.targetZoom - globe.zoom) * 0.14;
+    function clearCanvas() {
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.restore();
+    }
+
+    function drawFrame() {
       globe.radius = globe.baseRadius * globe.zoom;
 
       projection.rotate([globe.yaw, globe.pitch]);
       projection.scale(globe.radius);
 
-      context.save();
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.restore();
+      clearCanvas();
       drawAtmosphere();
       drawSphere();
       drawWorld();
+    }
+
+    function render() {
+      globe.zoom += (globe.targetZoom - globe.zoom) * 0.14;
+      drawFrame();
 
       if (!pointer.dragging) {
         globe.yaw += globe.velocityX;
@@ -310,6 +319,33 @@
       }
 
       requestAnimationFrame(render);
+    }
+
+    function startAnimation() {
+      if (isAnimationStarted) {
+        return;
+      }
+
+      isAnimationStarted = true;
+      render();
+    }
+
+    function startWhenVisible() {
+      if (!("IntersectionObserver" in window)) {
+        startAnimation();
+        return;
+      }
+
+      const observer = new IntersectionObserver((entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) {
+          return;
+        }
+
+        observer.disconnect();
+        startAnimation();
+      }, { threshold: 0.1 });
+
+      observer.observe(root);
     }
 
     function updatePointerState(isDragging) {
@@ -599,7 +635,13 @@
       return;
     }
 
-    window.addEventListener("resize", resizeCanvas);
+    window.addEventListener("resize", () => {
+      resizeCanvas();
+
+      if (!isAnimationStarted) {
+        drawFrame();
+      }
+    });
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
@@ -621,7 +663,8 @@
     updateCountryLabel("");
     updateSearchClearButton();
     closeSuggestions();
-    render();
+    drawFrame();
+    startWhenVisible();
   }
 
   function initGlobeWidgets() {
