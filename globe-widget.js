@@ -1,12 +1,14 @@
 (function () {
   const DRAG_THRESHOLD = 6;
   const MAX_SUGGESTIONS = 5;
-  const AUTO_ROTATION_SPEED = 0.05;
-  const SELECTED_COUNTRY_ROTATION_SPEED = 0.012;
+  const AUTO_ROTATION_SPEED = 0.1;
+  const SELECTED_COUNTRY_ROTATION_SPEED = 0.025;
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
   const INTRO_PITCH_STOP_SPEED = 0.002;
+  const FRAME_DURATION = 1000 / 60;
+  const MAX_FRAME_SCALE = 3;
 
   function escapeHtml(text) {
     return text
@@ -48,6 +50,10 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+  }
+
+  function getFrameLerpAmount(amount, frameScale) {
+    return 1 - Math.pow(1 - amount, frameScale);
   }
 
   function createGlobeWidget(root) {
@@ -104,6 +110,10 @@
       lastY: 0,
       startX: 0,
       startY: 0,
+      activePointers: new Map(),
+      pinching: false,
+      pinchStartDistance: 0,
+      pinchStartZoom: 0,
     };
 
     let countries;
@@ -117,6 +127,7 @@
     let activeSuggestionIndex = -1;
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
+    let lastFrameTime = null;
 
     function getAutoRotationSpeed() {
       const zoomProgress = clamp((globe.zoom - globe.minZoom) / (globe.maxZoom - globe.minZoom), 0, 1);
@@ -319,12 +330,20 @@
       drawWorld();
     }
 
-    function render() {
-      globe.zoom += (globe.targetZoom - globe.zoom) * 0.14;
+    function render(timestamp) {
+      if (lastFrameTime === null) {
+        lastFrameTime = timestamp || performance.now();
+      }
+
+      const elapsed = Math.max(0, (timestamp || performance.now()) - lastFrameTime);
+      const frameScale = clamp(elapsed / FRAME_DURATION, 0, MAX_FRAME_SCALE) || 1;
+      lastFrameTime = timestamp || performance.now();
+
+      globe.zoom += (globe.targetZoom - globe.zoom) * getFrameLerpAmount(0.14, frameScale);
 
       if (!pointer.dragging) {
-        globe.yaw += globe.velocityX;
-        const nextPitch = globe.pitch + globe.velocityY;
+        globe.yaw += globe.velocityX * frameScale;
+        const nextPitch = globe.pitch + globe.velocityY * frameScale;
 
         if (isIntroPitchDriftActive && globe.velocityY < 0) {
           const distanceToIntroLimit = globe.pitch - INTRO_MIN_PITCH;
@@ -339,14 +358,15 @@
             globe.velocityY = 0;
             isIntroPitchDriftActive = false;
           } else {
-            globe.pitch = Math.max(INTRO_MIN_PITCH, globe.pitch + easedVelocityY);
+            globe.pitch = Math.max(INTRO_MIN_PITCH, globe.pitch + easedVelocityY * frameScale);
           }
         } else {
           globe.pitch = clamp(nextPitch, -90, 90);
         }
+
         const targetVelocityX = selectedCountry ? SELECTED_COUNTRY_ROTATION_SPEED : getAutoRotationSpeed();
-        globe.velocityX += (targetVelocityX - globe.velocityX) * 0.02;
-        globe.velocityY *= 0.996;
+        globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(0.02, frameScale);
+        globe.velocityY *= Math.pow(0.996, frameScale);
       }
 
       drawFrame();
@@ -359,7 +379,8 @@
       }
 
       isAnimationStarted = true;
-      render();
+      lastFrameTime = null;
+      requestAnimationFrame(render);
     }
 
     function startWhenVisible() {
@@ -383,6 +404,44 @@
     function updatePointerState(isDragging) {
       pointer.dragging = isDragging;
       canvas.classList.toggle("is-dragging", isDragging);
+    }
+
+    function storeActivePointer(event) {
+      pointer.activePointers.set(event.pointerId, {
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }
+
+    function getPinchDistance() {
+      const activePoints = Array.from(pointer.activePointers.values());
+
+      if (activePoints.length < 2) {
+        return 0;
+      }
+
+      return Math.hypot(activePoints[0].x - activePoints[1].x, activePoints[0].y - activePoints[1].y);
+    }
+
+    function beginPinchZoom() {
+      pointer.pinching = true;
+      pointer.moved = true;
+      pointer.pinchStartDistance = getPinchDistance();
+      pointer.pinchStartZoom = globe.targetZoom;
+    }
+
+    function resetSinglePointerDrag() {
+      const remainingPointer = Array.from(pointer.activePointers.values())[0];
+
+      if (!remainingPointer) {
+        return;
+      }
+
+      pointer.lastX = remainingPointer.x;
+      pointer.lastY = remainingPointer.y;
+      pointer.startX = remainingPointer.x;
+      pointer.startY = remainingPointer.y;
+      pointer.moved = true;
     }
 
     function updateActiveSuggestion() {
@@ -524,67 +583,118 @@
       focusOnCountry(match);
     }
 
-    function onPointerDown(event) {
-      updatePointerState(true);
-      isIntroPitchDriftActive = false;
-      pointer.moved = false;
-      pointer.lastX = event.clientX;
-      pointer.lastY = event.clientY;
-      pointer.startX = event.clientX;
-      pointer.startY = event.clientY;
-      canvas.setPointerCapture(event.pointerId);
+function onPointerDown(event) {
+  isIntroPitchDriftActive = false;
+  storeActivePointer(event);
+  updatePointerState(true);
+  canvas.setPointerCapture(event.pointerId);
+
+  if (pointer.activePointers.size === 1) {
+    pointer.pinching = false;
+    pointer.moved = false;
+    pointer.lastX = event.clientX;
+    pointer.lastY = event.clientY;
+    pointer.startX = event.clientX;
+    pointer.startY = event.clientY;
+    return;
+  }
+
+  beginPinchZoom();
+}
+
+function onPointerMove(event) {
+  if (!pointer.activePointers.has(event.pointerId)) {
+    return;
+  }
+
+  storeActivePointer(event);
+
+  if (pointer.activePointers.size >= 2) {
+    if (!pointer.pinching) {
+      beginPinchZoom();
     }
 
-    function onPointerMove(event) {
-      if (!pointer.dragging) {
-        return;
-      }
+    const pinchDistance = getPinchDistance();
 
-      const deltaX = event.clientX - pointer.lastX;
-      const deltaY = event.clientY - pointer.lastY;
-      const travelX = event.clientX - pointer.startX;
-      const travelY = event.clientY - pointer.startY;
-
-      pointer.lastX = event.clientX;
-      pointer.lastY = event.clientY;
-
-      if (Math.hypot(travelX, travelY) > DRAG_THRESHOLD) {
-        pointer.moved = true;
-      }
-
-      globe.yaw += deltaX * 0.45;
-      globe.pitch = clamp(globe.pitch - deltaY * 0.45, -90, 90);
-      globe.velocityX = deltaX * 0.03;
-      globe.velocityY = -deltaY * 0.03;
+    if (pointer.pinchStartDistance > 0) {
+      setTargetZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
     }
 
-    function onPointerUp(event) {
-      if (!pointer.dragging) {
-        return;
-      }
+    pointer.moved = true;
+    return;
+  }
 
-      updatePointerState(false);
+  if (!pointer.dragging) {
+    return;
+  }
 
-      if (!pointer.moved) {
-        selectCountryAtPoint(event.clientX, event.clientY);
-      }
+  const deltaX = event.clientX - pointer.lastX;
+  const deltaY = event.clientY - pointer.lastY;
+  const travelX = event.clientX - pointer.startX;
+  const travelY = event.clientY - pointer.startY;
 
-      if (canvas.hasPointerCapture(event.pointerId)) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
-    }
+  pointer.lastX = event.clientX;
+  pointer.lastY = event.clientY;
 
-    function onPointerCancel(event) {
-      if (!pointer.dragging) {
-        return;
-      }
+  if (Math.hypot(travelX, travelY) > DRAG_THRESHOLD) {
+    pointer.moved = true;
+  }
 
-      updatePointerState(false);
+  globe.yaw += deltaX * 0.45;
+  globe.pitch = clamp(globe.pitch - deltaY * 0.45, -90, 90);
+  globe.velocityX = deltaX * 0.03;
+  globe.velocityY = -deltaY * 0.03;
+}
 
-      if (canvas.hasPointerCapture(event.pointerId)) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
-    }
+function onPointerUp(event) {
+  const wasTap = pointer.dragging && !pointer.moved && pointer.activePointers.size === 1 && pointer.activePointers.has(event.pointerId);
+
+  pointer.activePointers.delete(event.pointerId);
+
+  if (canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+
+  if (wasTap) {
+    selectCountryAtPoint(event.clientX, event.clientY);
+  }
+
+  if (!pointer.activePointers.size) {
+    pointer.pinching = false;
+    updatePointerState(false);
+    return;
+  }
+
+  if (pointer.activePointers.size === 1) {
+    pointer.pinching = false;
+    resetSinglePointerDrag();
+    return;
+  }
+
+  beginPinchZoom();
+}
+
+function onPointerCancel(event) {
+  pointer.activePointers.delete(event.pointerId);
+
+  if (canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+
+  if (!pointer.activePointers.size) {
+    pointer.pinching = false;
+    updatePointerState(false);
+    return;
+  }
+
+  if (pointer.activePointers.size === 1) {
+    pointer.pinching = false;
+    resetSinglePointerDrag();
+    return;
+  }
+
+  beginPinchZoom();
+}
 
     function onWheel(event) {
       event.preventDefault();
