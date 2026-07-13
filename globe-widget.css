@@ -90,7 +90,10 @@
   background-position: 14px 50%;
   background-size: 20px 20px;
   color: var(--wf-globe-text);
-  font: inherit;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.2;
   outline: none;
   backdrop-filter: blur(10px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
@@ -192,7 +195,8 @@
   border-radius: 12px;
   background: rgba(8, 25, 38, 0.72);
   color: var(--wf-globe-text);
-  font: inherit;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-weight: 400;
   font-size: 0;
   line-height: 1;
   cursor: pointer;
@@ -253,6 +257,7 @@
 .wf-globe-widget__label {
   display: block;
   min-width: 0;
+  font-weight: 700;
   text-align: center;
 }
 
