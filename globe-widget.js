@@ -4,7 +4,9 @@
   const AUTO_ROTATION_SPEED = 0.05;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.025;
   const INITIAL_PITCH_VELOCITY = -0.075;
-  const INTRO_MIN_PITCH = -24;
+  const INTRO_MIN_PITCH = -25;
+  const INTRO_PITCH_EASE_DISTANCE = 6;
+  const INTRO_PITCH_STOP_SPEED = 0.002;
 
   function escapeHtml(text) {
     return text
@@ -312,11 +314,19 @@
         const nextPitch = globe.pitch + globe.velocityY;
 
         if (isIntroPitchDriftActive && globe.velocityY < 0) {
-          globe.pitch = clamp(nextPitch, INTRO_MIN_PITCH, 90);
+          const distanceToIntroLimit = globe.pitch - INTRO_MIN_PITCH;
+          const pitchEase = clamp(distanceToIntroLimit / INTRO_PITCH_EASE_DISTANCE, 0, 1);
+          const easedVelocityY = globe.velocityY * pitchEase;
 
-          if (globe.pitch === INTRO_MIN_PITCH) {
+          if (distanceToIntroLimit <= 0) {
+            globe.pitch = INTRO_MIN_PITCH;
             globe.velocityY = 0;
             isIntroPitchDriftActive = false;
+          } else if (Math.abs(easedVelocityY) < INTRO_PITCH_STOP_SPEED) {
+            globe.velocityY = 0;
+            isIntroPitchDriftActive = false;
+          } else {
+            globe.pitch = Math.max(INTRO_MIN_PITCH, globe.pitch + easedVelocityY);
           }
         } else {
           globe.pitch = clamp(nextPitch, -90, 90);
