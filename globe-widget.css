@@ -190,12 +190,26 @@
   background: rgba(8, 25, 38, 0.72);
   color: var(--wf-globe-text);
   font: inherit;
-  font-size: 1.75rem;
+  font-size: 0;
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(10px);
   transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.wf-globe-widget__zoom-button::before {
+  display: block;
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.wf-globe-widget__zoom-button[data-zoom-in]::before {
+  content: "+";
+}
+
+.wf-globe-widget__zoom-button[data-zoom-out]::before {
+  content: "–";
 }
 
 .wf-globe-widget__zoom-button:hover,
