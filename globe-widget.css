@@ -220,11 +220,19 @@
   content: "–";
 }
 
-.wf-globe-widget__zoom-button:hover,
-.wf-globe-widget__zoom-button:focus-visible {
+.wf-globe-widget__zoom-button:focus-visible,
+.wf-globe-widget__zoom-button:active {
   transform: scale(1.03);
   border-color: rgba(180, 227, 255, 0.34);
   background: rgba(18, 47, 67, 0.9);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .wf-globe-widget__zoom-button:hover {
+    transform: scale(1.03);
+    border-color: rgba(180, 227, 255, 0.34);
+    background: rgba(18, 47, 67, 0.9);
+  }
 }
 
 .wf-globe-widget__hud {
