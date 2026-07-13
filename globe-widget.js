@@ -23,6 +23,10 @@
     "United Arab Emirates": "UAE",
   };
 
+  const COUNTRY_FOCUS_CENTERS = {
+    France: [2.2137, 46.2276],
+  };
+
   function getCountryAcronym(name) {
     return COUNTRY_ACRONYMS[name] || null;
   }
@@ -30,6 +34,10 @@
   function getDisplayName(feature) {
     const acronym = getCountryAcronym(feature.properties.name);
     return acronym ? `${feature.properties.name} (${acronym})` : feature.properties.name;
+  }
+
+  function getFocusCenter(feature) {
+    return COUNTRY_FOCUS_CENTERS[feature.properties.name] || window.d3.geoCentroid(feature);
   }
 
   function countryMatchesQuery(feature, matches) {
@@ -437,7 +445,7 @@
     }
 
     function focusOnCountry(feature) {
-      const center = window.d3.geoCentroid(feature);
+      const center = getFocusCenter(feature);
       const longitude = center[0];
       const latitude = center[1];
 
