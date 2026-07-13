@@ -1,6 +1,10 @@
 (function () {
   const DRAG_THRESHOLD = 6;
   const MAX_SUGGESTIONS = 5;
+  const AUTO_ROTATION_SPEED = 0.05;
+  const SELECTED_COUNTRY_ROTATION_SPEED = 0.025;
+  const INITIAL_PITCH_VELOCITY = -0.075;
+  const INTRO_MIN_PITCH = -24;
 
   function escapeHtml(text) {
     return text
@@ -71,8 +75,8 @@
     const globe = {
       yaw: -36,
       pitch: -18,
-      velocityX: 0.18,
-      velocityY: -0.06,
+      velocityX: AUTO_ROTATION_SPEED,
+      velocityY: INITIAL_PITCH_VELOCITY,
       zoom: 1.05,
       targetZoom: 1.05,
       minZoom: 0.75,
@@ -101,6 +105,7 @@
     let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
     let activeSuggestionIndex = -1;
+    let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
 
     function setSearchExpanded(isExpanded) {
@@ -301,23 +306,27 @@
 
     function render() {
       globe.zoom += (globe.targetZoom - globe.zoom) * 0.14;
-      drawFrame();
 
       if (!pointer.dragging) {
         globe.yaw += globe.velocityX;
-        globe.pitch = clamp(globe.pitch + globe.velocityY, -90, 90);
-        globe.velocityX *= 0.992;
-        globe.velocityY *= 0.992;
+        const nextPitch = globe.pitch + globe.velocityY;
 
-        if (Math.abs(globe.velocityX) < 0.015) {
-          globe.velocityX += 0.004;
-        }
+        if (isIntroPitchDriftActive && globe.velocityY < 0) {
+          globe.pitch = clamp(nextPitch, INTRO_MIN_PITCH, 90);
 
-        if (Math.abs(globe.velocityY) < 0.006) {
-          globe.velocityY *= 0.98;
+          if (globe.pitch === INTRO_MIN_PITCH) {
+            globe.velocityY = 0;
+            isIntroPitchDriftActive = false;
+          }
+        } else {
+          globe.pitch = clamp(nextPitch, -90, 90);
         }
+        const targetVelocityX = selectedCountry ? SELECTED_COUNTRY_ROTATION_SPEED : AUTO_ROTATION_SPEED;
+        globe.velocityX += (targetVelocityX - globe.velocityX) * 0.02;
+        globe.velocityY *= 0.996;
       }
 
+      drawFrame();
       requestAnimationFrame(render);
     }
 
@@ -427,9 +436,10 @@
       }
 
       selectedCountry = feature;
+      isIntroPitchDriftActive = false;
       globe.yaw = -longitude;
       globe.pitch = clamp(-latitude, -90, 90);
-      globe.velocityX = 0;
+      globe.velocityX = SELECTED_COUNTRY_ROTATION_SPEED;
       globe.velocityY = 0;
       setTargetZoom(3.5);
       countrySearchInput.value = "";
@@ -483,11 +493,17 @@
         return;
       }
 
+      if (selectedCountry === match) {
+        clearSelectedCountry();
+        return;
+      }
+
       focusOnCountry(match);
     }
 
     function onPointerDown(event) {
       updatePointerState(true);
+      isIntroPitchDriftActive = false;
       pointer.moved = false;
       pointer.lastX = event.clientX;
       pointer.lastY = event.clientY;
