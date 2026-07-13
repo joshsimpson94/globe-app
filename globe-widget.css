@@ -311,7 +311,7 @@
 
 @media (max-width: 560px) {
   .wf-globe-widget {
-    --wf-globe-padding: 8px;
+    --wf-globe-padding: 12px;
     --wf-globe-control-offset: 12px;
   }
 
@@ -347,7 +347,7 @@
 
 @container (max-width: 560px) {
   .wf-globe-widget {
-    --wf-globe-padding: 8px;
+    --wf-globe-padding: 12px;
     --wf-globe-control-offset: 12px;
   }
 
