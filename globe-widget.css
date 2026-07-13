@@ -1,13 +1,13 @@
 .wf-globe-widget {
   --wf-globe-text: #eff9ff;
-  --wf-globe-viewport-offset: 0px;
   --wf-globe-padding: 16px;
-  --wf-globe-height: calc(100svh - var(--wf-globe-viewport-offset) - (var(--wf-globe-padding) * 2));
+  --wf-globe-height: 100%;
   --wf-globe-control-offset: clamp(10px, 2.4vw, 18px);
   --wf-globe-border: 1px solid rgba(180, 227, 255, 0.18);
   --wf-globe-hud-max-width: 391px;
   display: block;
   width: 100%;
+  height: 100%;
   margin: 0;
   padding: var(--wf-globe-padding);
   border: 0;
