@@ -311,6 +311,11 @@
 
 @media (max-width: 560px) {
 
+  .wf-globe-widget__input,
+  .wf-globe-widget__zoom-button::before {
+    font-weight: 500;
+  }
+
   .wf-globe-widget__search-clear {
     top: 22px;
   }
@@ -337,6 +342,11 @@
 }
 
 @container (max-width: 560px) {
+
+  .wf-globe-widget__input,
+  .wf-globe-widget__zoom-button::before {
+    font-weight: 500;
+  }
 
   .wf-globe-widget__search-clear {
     top: 22px;
