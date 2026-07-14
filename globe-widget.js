@@ -3,6 +3,9 @@
   const MAX_SUGGESTIONS = 5;
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
+  const SELECTED_COUNTRY_ZOOM = 3.5;
+  const SELECTED_COUNTRY_FIT_WIDTH = 0.72;
+  const SELECTED_COUNTRY_FIT_HEIGHT = 0.54;
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
@@ -508,6 +511,32 @@
       setTargetZoom(globe.targetZoom + delta);
     }
 
+    function getCountryFitZoom(feature) {
+      const previousRotate = projection.rotate();
+      const previousScale = projection.scale();
+
+      projection.rotate([globe.yaw, globe.pitch]);
+      projection.scale(globe.baseRadius);
+
+      const bounds = path.bounds(feature);
+
+      projection.rotate(previousRotate);
+      projection.scale(previousScale);
+
+      const width = bounds[1][0] - bounds[0][0];
+      const height = bounds[1][1] - bounds[0][1];
+
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return SELECTED_COUNTRY_ZOOM;
+      }
+
+      const availableWidth = globe.centerX * 2 * SELECTED_COUNTRY_FIT_WIDTH;
+      const availableHeight = globe.centerY * 2 * SELECTED_COUNTRY_FIT_HEIGHT;
+      const fitZoom = Math.min(availableWidth / width, availableHeight / height);
+
+      return clamp(Math.min(SELECTED_COUNTRY_ZOOM, fitZoom), globe.minZoom, SELECTED_COUNTRY_ZOOM);
+    }
+
     function focusOnCountry(feature) {
       const center = getFocusCenter(feature);
       const longitude = center[0];
@@ -523,7 +552,7 @@
       globe.pitch = clamp(-latitude, -90, 90);
       globe.velocityX = SELECTED_COUNTRY_ROTATION_SPEED;
       globe.velocityY = 0;
-      setTargetZoom(3.5);
+      setTargetZoom(getCountryFitZoom(feature));
       countrySearchInput.value = "";
       updateSearchClearButton();
       updateCountryLabel(getDisplayName(feature));
