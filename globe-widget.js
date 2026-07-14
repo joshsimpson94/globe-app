@@ -512,6 +512,10 @@
     }
 
     function getCountryFitZoom(feature) {
+      if (feature.properties.name === "France") {
+        return SELECTED_COUNTRY_ZOOM;
+      }
+
       const previousRotate = projection.rotate();
       const previousScale = projection.scale();
 
