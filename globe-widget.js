@@ -236,8 +236,8 @@
         globe.radius * 1.08,
       );
 
-      ocean.addColorStop(0, "#4de0ff");
-      ocean.addColorStop(0.18, "#1c9eda");
+      ocean.addColorStop(0, "#1c9eda");
+      ocean.addColorStop(0.24, "#137faf");
       ocean.addColorStop(0.56, "#0b5d8d");
       ocean.addColorStop(1, "#08253a");
 
@@ -261,17 +261,6 @@
       context.beginPath();
       path({ type: "Sphere" });
       context.fillStyle = shading;
-      context.fill();
-
-      context.beginPath();
-      context.arc(
-        globe.centerX - globe.radius * 0.26,
-        globe.centerY - globe.radius * 0.34,
-        globe.radius * 0.24,
-        0,
-        Math.PI * 2,
-      );
-      context.fillStyle = "rgba(255, 255, 255, 0.14)";
       context.fill();
 
       context.beginPath();
