@@ -1,5 +1,7 @@
 (function () {
   const DRAG_THRESHOLD = 6;
+  const MOBILE_DOUBLE_TAP_DELAY = 260;
+  const MOBILE_DOUBLE_TAP_MAX_DISTANCE = 32;
   const MAX_SUGGESTIONS = 5;
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
@@ -88,6 +90,7 @@
     const countrySuggestions = root.querySelector("[data-country-suggestions]");
     const globeStatus = root.querySelector("[data-globe-status]");
     const desktopHoverMediaQuery = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 561px)");
+    const mobileBreakpointMediaQuery = window.matchMedia("(max-width: 560px)");
 
     const requiredElements = [
       frame,
@@ -173,6 +176,7 @@
     let pixelRatio = 1;
     let staticLayerCanvas = null;
     let staticLayerKey = "";
+    let pendingMobileCountryTap = null;
 
     function getAutoRotationSpeed(zoom = globe.zoom) {
       const zoomProgress = clamp(
@@ -302,6 +306,10 @@
 
     function isDesktopHoverEnabled() {
       return desktopHoverMediaQuery.matches;
+    }
+
+    function isMobileBreakpoint() {
+      return mobileBreakpointMediaQuery.matches;
     }
 
     function getCountryBorderWidth(renderSource) {
@@ -749,6 +757,7 @@
     }
 
     function beginPinchZoom() {
+      clearPendingMobileCountryTap();
       pointer.pinching = true;
       pointer.moved = true;
       pointer.pinchStartDistance = getPinchDistance();
@@ -766,6 +775,7 @@
     }
 
     function beginFramePinchZoom() {
+      clearPendingMobileCountryTap();
       isFramePinching = true;
       pointer.activePointers.clear();
       pointer.pinching = false;
@@ -1075,9 +1085,7 @@
       canvas.classList.toggle("is-country-hovered", Boolean(hoveredCountry));
     }
 
-    function selectCountryAtPoint(clientX, clientY) {
-      const match = getCountryAtPoint(clientX, clientY);
-
+    function selectCountry(match) {
       if (!match) {
         clearSelectedCountry();
         return;
@@ -1089,6 +1097,62 @@
       }
 
       focusOnCountry(match);
+    }
+
+    function selectCountryAtPoint(clientX, clientY) {
+      selectCountry(getCountryAtPoint(clientX, clientY));
+    }
+
+    function clearPendingMobileCountryTap() {
+      if (!pendingMobileCountryTap) {
+        return;
+      }
+
+      window.clearTimeout(pendingMobileCountryTap.timeoutId);
+      pendingMobileCountryTap = null;
+    }
+
+    function handleTap(event) {
+      if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
+        selectCountryAtPoint(event.clientX, event.clientY);
+        return;
+      }
+
+      const now = performance.now();
+      const previousTap = pendingMobileCountryTap;
+      const tappedCountry = getCountryAtPoint(event.clientX, event.clientY);
+
+      if (previousTap) {
+        const elapsed = now - previousTap.timestamp;
+        const distance = Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y);
+
+        if (elapsed <= MOBILE_DOUBLE_TAP_DELAY && distance <= MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
+          clearPendingMobileCountryTap();
+          zoomBy(0.75);
+          return;
+        }
+
+        clearPendingMobileCountryTap();
+        selectCountry(previousTap.country);
+      }
+
+      const tap = {
+        x: event.clientX,
+        y: event.clientY,
+        timestamp: now,
+        country: tappedCountry,
+        timeoutId: 0,
+      };
+
+      tap.timeoutId = window.setTimeout(() => {
+        if (pendingMobileCountryTap !== tap) {
+          return;
+        }
+
+        pendingMobileCountryTap = null;
+        selectCountry(tap.country);
+      }, MOBILE_DOUBLE_TAP_DELAY);
+      pendingMobileCountryTap = tap;
     }
 
 function onPointerDown(event) {
@@ -1179,7 +1243,7 @@ function onPointerUp(event) {
   }
 
   if (wasTap) {
-    selectCountryAtPoint(event.clientX, event.clientY);
+    handleTap(event);
   }
 
   if (!pointer.activePointers.size) {
