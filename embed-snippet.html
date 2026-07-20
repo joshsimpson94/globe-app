@@ -43,5 +43,9 @@
 <link rel="stylesheet" href="/assets/globe-widget.css">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
-<script src="/assets/countries-110m.js"></script>
-<script src="/assets/globe-widget.js"></script>
+<script>
+  window.WORLD_TOPOLOGY_URL = "/assets/countries-50m.json?v=close-detail";
+  window.WORLD_TOPOLOGY_OVERVIEW_URL = "/assets/countries-50m-overview.json?v=close-detail";
+  window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "/assets/countries-50m-close.json?v=close-detail";
+</script>
+<script src="/assets/globe-widget.js?v=close-detail"></script>
