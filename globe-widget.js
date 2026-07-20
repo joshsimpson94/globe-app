@@ -15,6 +15,7 @@
   const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
   const COUNTRY_HOVER_FILL = "#93E8B1";
+  const COUNTRY_BORDER_STROKE = "rgba(147, 232, 177, 0.6)";
   const OVERVIEW_COUNTRY_BORDER_WIDTH = 0.75;
   const STANDARD_COUNTRY_BORDER_WIDTH = 1.25;
   const CLOSE_DETAIL_COUNTRY_BORDER_WIDTH = 1.75;
@@ -161,6 +162,7 @@
     let visibleCountryBorderMesh = null;
     let visibleCountryBorderKey = "";
     let selectedCountry = null;
+    let hasUserAdjustedZoomSinceCountrySelection = false;
     let hoveredCountry = null;
     let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
@@ -548,7 +550,7 @@
       context.beginPath();
       path(visibleCountryBorderMesh);
       context.lineWidth = getCountryBorderWidth(renderSource);
-      context.strokeStyle = "rgba(210, 255, 231, 0.28)";
+      context.strokeStyle = COUNTRY_BORDER_STROKE;
       context.stroke();
 
       context.beginPath();
@@ -561,7 +563,7 @@
         const renderSource = getRenderGeometrySource();
         const selectedRenderFeature = renderSource.featureByName.get(selectedCountry.properties.name) || selectedCountry;
 
-        context.fillStyle = "rgba(255, 212, 102, 0.92)";
+        context.fillStyle = "#FFD166";
         fillCountry(selectedRenderFeature);
         context.beginPath();
         path(selectedRenderFeature);
@@ -677,11 +679,18 @@
           globe.pitch = clamp(nextPitch, -90, 90);
         }
 
-        const targetVelocityX = selectedCountry
-          ? Math.min(SELECTED_COUNTRY_ROTATION_SPEED, getAutoRotationSpeed(globe.targetZoom))
-          : getAutoRotationSpeed();
-        const rotationEase = selectedCountry ? SELECTED_COUNTRY_ROTATION_EASE : 0.02;
-        globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(rotationEase, frameScale);
+        const useSelectedCountryRotation = selectedCountry && !hasUserAdjustedZoomSinceCountrySelection;
+
+        if (selectedCountry && hasUserAdjustedZoomSinceCountrySelection) {
+          // User-controlled zoom resumes the normal rotation curve immediately.
+          globe.velocityX = getAutoRotationSpeed();
+        } else {
+          const targetVelocityX = useSelectedCountryRotation
+            ? Math.min(SELECTED_COUNTRY_ROTATION_SPEED, getAutoRotationSpeed(globe.targetZoom))
+            : getAutoRotationSpeed();
+          const rotationEase = useSelectedCountryRotation ? SELECTED_COUNTRY_ROTATION_EASE : 0.02;
+          globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(rotationEase, frameScale);
+        }
         globe.velocityY *= Math.pow(0.996, frameScale);
       }
 
@@ -808,7 +817,7 @@
 
       const pinchDistance = getFramePinchDistance();
       if (pinchDistance > 0 && pointer.pinchStartDistance > 0 && frameTouchPointers.size >= 2) {
-        setTargetZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
+        setTargetZoomFromUser(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
       }
 
       event.preventDefault();
@@ -938,12 +947,21 @@
     }
 
     function setTargetZoom(nextZoom) {
-      globe.targetZoom = clamp(nextZoom, globe.minZoom, globe.maxZoom);
+      const nextTargetZoom = clamp(nextZoom, globe.minZoom, globe.maxZoom);
+      const hasChanged = nextTargetZoom !== globe.targetZoom;
+      globe.targetZoom = nextTargetZoom;
+      return hasChanged;
+    }
+
+    function setTargetZoomFromUser(nextZoom) {
+      if (setTargetZoom(nextZoom) && selectedCountry) {
+        hasUserAdjustedZoomSinceCountrySelection = true;
+      }
     }
 
     function zoomBy(delta) {
       const zoomFactor = 1 + Math.abs(delta) * 0.9;
-      setTargetZoom(globe.targetZoom * (delta > 0 ? zoomFactor : 1 / zoomFactor));
+      setTargetZoomFromUser(globe.targetZoom * (delta > 0 ? zoomFactor : 1 / zoomFactor));
     }
 
     function getCountryFitZoom(feature) {
@@ -997,6 +1015,7 @@
       }
 
       selectedCountry = feature;
+      hasUserAdjustedZoomSinceCountrySelection = false;
       isIntroPitchDriftActive = false;
       globe.yaw = -longitude;
       globe.pitch = clamp(-latitude, -90, 90);
@@ -1011,6 +1030,7 @@
 
     function clearSelectedCountry() {
       selectedCountry = null;
+      hasUserAdjustedZoomSinceCountrySelection = false;
       if (zoomBeforeCountrySelection !== null) {
         setTargetZoom(zoomBeforeCountrySelection);
         zoomBeforeCountrySelection = null;
@@ -1109,7 +1129,7 @@ function onPointerMove(event) {
     const pinchDistance = getPinchDistance();
 
     if (pointer.pinchStartDistance > 0) {
-      setTargetZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
+      setTargetZoomFromUser(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
     }
 
     pointer.moved = true;
