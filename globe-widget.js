@@ -15,6 +15,9 @@
   const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
   const COUNTRY_HOVER_FILL = "#93E8B1";
+  const OVERVIEW_COUNTRY_BORDER_WIDTH = 0.75;
+  const STANDARD_COUNTRY_BORDER_WIDTH = 1.25;
+  const CLOSE_DETAIL_COUNTRY_BORDER_WIDTH = 1.75;
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
@@ -299,6 +302,18 @@
       return desktopHoverMediaQuery.matches;
     }
 
+    function getCountryBorderWidth(renderSource) {
+      if (renderSource.key === "close-detail") {
+        return CLOSE_DETAIL_COUNTRY_BORDER_WIDTH;
+      }
+
+      if (renderSource.key === "detail") {
+        return STANDARD_COUNTRY_BORDER_WIDTH;
+      }
+
+      return OVERVIEW_COUNTRY_BORDER_WIDTH;
+    }
+
     function getVisibleCountries() {
       const viewCenter = projection.invert([globe.centerX, globe.centerY]);
       const features = visibleCountries.features;
@@ -514,6 +529,7 @@
       context.clip();
 
       const countriesOnFront = getVisibleCountries();
+      const renderSource = getRenderGeometrySource();
 
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
 
@@ -531,7 +547,7 @@
 
       context.beginPath();
       path(visibleCountryBorderMesh);
-      context.lineWidth = 0.7;
+      context.lineWidth = getCountryBorderWidth(renderSource);
       context.strokeStyle = "rgba(210, 255, 231, 0.28)";
       context.stroke();
 
