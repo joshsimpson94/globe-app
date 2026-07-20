@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Webflow Globe Widget Demo</title>
-  <link rel="stylesheet" href="globe-widget.css?v=remove-hover-easing">
+  <link rel="stylesheet" href="globe-widget.css?v=disable-search-autocorrect">
   <style>
     html,
     body {
@@ -27,7 +27,7 @@
       <canvas class="wf-globe-widget__canvas" data-globe-canvas aria-label="Interactive rotating globe"></canvas>
 
       <form class="wf-globe-widget__search" data-country-search-form role="search" autocomplete="off">
-        <input class="wf-globe-widget__input" data-country-search-input type="text" placeholder="Search countries" aria-label="Search countries" role="combobox" aria-autocomplete="list" aria-controls="countrySuggestions" aria-expanded="false" enterkeyhint="done" spellcheck="false">
+        <input class="wf-globe-widget__input" data-country-search-input type="text" placeholder="Search countries" aria-label="Search countries" role="combobox" aria-autocomplete="list" aria-controls="countrySuggestions" aria-expanded="false" enterkeyhint="done" autocapitalize="sentences" autocorrect="off" spellcheck="false">
         <button class="wf-globe-widget__search-clear" data-country-search-clear type="button" aria-label="Clear search" hidden>
           <span class="wf-globe-widget__search-clear-icon" aria-hidden="true"></span>
         </button>
@@ -58,6 +58,6 @@
     window.WORLD_TOPOLOGY_OVERVIEW_URL = "countries-50m-overview.json?v=tier-matched-fills";
     window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "countries-50m-close.json?v=close-high-detail";
   </script>
-  <script src="globe-widget.js?v=remove-hover-easing"></script>
+  <script src="globe-widget.js?v=disable-search-autocorrect"></script>
 </body>
 </html>
