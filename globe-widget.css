@@ -26,6 +26,15 @@
   box-sizing: border-box;
 }
 
+/* Applied only while a touch gesture that began on the globe is active. */
+html.wf-globe-widget--touch-gesture-active,
+html.wf-globe-widget--touch-gesture-active body,
+html.wf-globe-widget--touch-gesture-active body * {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none;
+}
+
 .wf-globe-widget__frame {
   position: relative;
   height: var(--wf-globe-height);

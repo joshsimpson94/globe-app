@@ -1116,6 +1116,10 @@
       pendingMobileCountryTap = null;
     }
 
+    function setPageTextSelectionSuppressed(isSuppressed) {
+      document.documentElement.classList.toggle("wf-globe-widget--touch-gesture-active", isSuppressed);
+    }
+
     function beginMobileDoubleTapGesture(event) {
       const previousTap = pendingMobileCountryTap;
 
@@ -1153,6 +1157,10 @@
       const verticalDistance = event.clientY - gesture.startY;
 
       if (Math.abs(verticalDistance) > DRAG_THRESHOLD) {
+        if (!gesture.hasDragged) {
+          setPageTextSelectionSuppressed(true);
+        }
+
         gesture.hasDragged = true;
         setTargetZoomFromUser(gesture.startZoom * Math.exp(verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
       }
@@ -1174,6 +1182,7 @@
 
       mobileDoubleTapGesture = null;
       updatePointerState(false);
+      setPageTextSelectionSuppressed(false);
 
       if (!isCancelled && !gesture.hasDragged) {
         zoomBy(0.75);
@@ -1196,6 +1205,7 @@
 
       mobileDoubleTapGesture = null;
       updatePointerState(false);
+      setPageTextSelectionSuppressed(false);
     }
 
     function handleTap(event) {
@@ -1351,6 +1361,7 @@ function onPointerUp(event) {
   if (!pointer.activePointers.size) {
     pointer.pinching = false;
     updatePointerState(false);
+    setPageTextSelectionSuppressed(false);
     return;
   }
 
@@ -1377,6 +1388,7 @@ function onPointerCancel(event) {
   if (!pointer.activePointers.size) {
     pointer.pinching = false;
     updatePointerState(false);
+    setPageTextSelectionSuppressed(false);
     return;
   }
 
@@ -1498,6 +1510,11 @@ function onPointerCancel(event) {
     canvas.addEventListener("pointercancel", onPointerCancel);
     canvas.addEventListener("selectstart", (event) => event.preventDefault());
     canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+    document.addEventListener("selectstart", (event) => {
+      if (document.documentElement.classList.contains("wf-globe-widget--touch-gesture-active")) {
+        event.preventDefault();
+      }
+    }, true);
     canvas.addEventListener("wheel", onWheel, { passive: false });
     zoomInButton.addEventListener("click", () => zoomBy(0.75));
     zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
