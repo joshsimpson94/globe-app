@@ -563,7 +563,6 @@
       }
 
       if (hoveredCountry && hoveredCountry !== selectedCountry && isDesktopHoverEnabled()) {
-        const renderSource = getRenderGeometrySource();
         const hoveredRenderFeature = renderSource.featureByName.get(hoveredCountry.properties.name) || hoveredCountry;
 
         context.fillStyle = COUNTRY_HOVER_FILL;
@@ -1133,6 +1132,12 @@
       document.documentElement.classList.toggle("wf-globe-widget--touch-gesture-active", isSuppressed);
     }
 
+    function preventNativeTouchSelection(event) {
+      if (document.documentElement.classList.contains("wf-globe-widget--touch-gesture-active")) {
+        event.preventDefault();
+      }
+    }
+
     function beginMobileDoubleTapGesture(event) {
       const previousTap = pendingMobileCountryTap;
       const doubleTapDelay = getDoubleTapDelay(event);
@@ -1480,6 +1485,10 @@ function onPointerCancel(event) {
     }
 
     function onSuggestionClick(event) {
+      selectSuggestionFromEvent(event);
+    }
+
+    function selectSuggestionFromEvent(event) {
       const suggestionButton = event.target.closest(".wf-globe-widget__suggestion");
 
       if (!suggestionButton) {
@@ -1492,6 +1501,15 @@ function onPointerCancel(event) {
       if (match) {
         focusOnCountry(match);
       }
+    }
+
+    function onSuggestionPointerUp(event) {
+      if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
+        return;
+      }
+
+      event.preventDefault();
+      selectSuggestionFromEvent(event);
     }
 
     function onDocumentClick(event) {
@@ -1537,6 +1555,8 @@ function onPointerCancel(event) {
         event.preventDefault();
       }
     }, true);
+    document.addEventListener("touchstart", preventNativeTouchSelection, { capture: true, passive: false });
+    document.addEventListener("touchmove", preventNativeTouchSelection, { capture: true, passive: false });
     canvas.addEventListener("wheel", onWheel, { passive: false });
     zoomInButton.addEventListener("click", () => zoomBy(0.75));
     zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
@@ -1550,6 +1570,7 @@ function onPointerCancel(event) {
     });
     countrySearchClearButton.addEventListener("click", clearSearchInput);
     countrySearchForm.addEventListener("submit", onCountrySearch);
+    countrySuggestions.addEventListener("pointerup", onSuggestionPointerUp);
     countrySuggestions.addEventListener("click", onSuggestionClick);
     countrySearchInput.addEventListener("input", onCountrySearchInput);
     countrySearchInput.addEventListener("change", onCountrySearch);
