@@ -5,8 +5,8 @@
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
   const SELECTED_COUNTRY_ZOOM = 3.5;
   const AUTO_ROTATION_ZOOM_REFERENCE = 5;
-  const OVERVIEW_LOD_ENTER_ZOOM = 2.3;
-  const OVERVIEW_LOD_EXIT_ZOOM = 2.4;
+  const OVERVIEW_LOD_ENTER_ZOOM = 2.9;
+  const OVERVIEW_LOD_EXIT_ZOOM = 3;
   const CLOSE_DETAIL_LOD_ENTER_ZOOM = 7;
   const CLOSE_DETAIL_LOD_EXIT_ZOOM = 7.2;
   const SELECTED_COUNTRY_FIT_WIDTH = 0.72;
@@ -131,15 +131,17 @@
     let countryFeatures = [];
     let countryRenderBounds = [];
     let countryGeometryByName = new Map();
+    let countryFeatureByName = new Map();
     let overviewTopology = null;
     let overviewCountryGeometryByName = new Map();
+    let overviewCountryFeatureByName = new Map();
     let isOverviewGeometryActive = false;
     let closeDetailTopology = null;
     let closeDetailCountryGeometryByName = new Map();
+    let closeDetailCountryFeatureByName = new Map();
     let isCloseDetailGeometryActive = false;
     const visibleCountries = { type: "FeatureCollection", features: [] };
     const visibleCountryGeometries = { type: "GeometryCollection", geometries: [] };
-    let visibleCountryFillGeometry = null;
     let visibleCountryBorderMesh = null;
     let visibleCountryBorderKey = "";
     let selectedCountry = null;
@@ -230,6 +232,7 @@
             key: "close-detail",
             topology: closeDetailTopology,
             geometryByName: closeDetailCountryGeometryByName,
+            featureByName: closeDetailCountryFeatureByName,
           };
         }
       }
@@ -239,6 +242,7 @@
           key: "detail",
           topology: window.WORLD_TOPOLOGY,
           geometryByName: countryGeometryByName,
+          featureByName: countryFeatureByName,
         };
       }
 
@@ -253,11 +257,13 @@
           key: "overview",
           topology: overviewTopology,
           geometryByName: overviewCountryGeometryByName,
+          featureByName: overviewCountryFeatureByName,
         }
         : {
           key: "detail",
           topology: window.WORLD_TOPOLOGY,
           geometryByName: countryGeometryByName,
+          featureByName: countryFeatureByName,
         };
     }
 
@@ -275,7 +281,11 @@
 
       countryRenderBounds.forEach(({ feature, center, radius }) => {
         if (window.d3.geoDistance(viewCenter, center) <= viewportAngle + radius + 0.01) {
-          features.push(feature);
+          const renderFeature = renderSource.featureByName.get(feature.properties.name);
+
+          if (renderFeature) {
+            features.push(renderFeature);
+          }
         }
       });
 
@@ -285,10 +295,6 @@
         visibleCountryGeometries.geometries = features
           .map((feature) => renderSource.geometryByName.get(feature.properties.name))
           .filter(Boolean);
-        visibleCountryFillGeometry = window.topojson.merge(
-          renderSource.topology,
-          visibleCountryGeometries.geometries,
-        );
         visibleCountryBorderMesh = window.topojson.mesh(
           renderSource.topology,
           visibleCountryGeometries,
@@ -317,6 +323,7 @@
       countryFeatures = countries.features
         .filter((feature) => feature && feature.properties && feature.properties.name)
         .sort((left, right) => left.properties.name.localeCompare(right.properties.name));
+      countryFeatureByName = new Map(countryFeatures.map((feature) => [feature.properties.name, feature]));
       countryGeometryByName = new Map(
         window.WORLD_TOPOLOGY.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]),
       );
@@ -324,10 +331,22 @@
       overviewCountryGeometryByName = overviewTopology
         ? new Map(overviewTopology.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]))
         : new Map();
+      overviewCountryFeatureByName = overviewTopology
+        ? new Map(
+          window.topojson.feature(overviewTopology, overviewTopology.objects.countries).features
+            .map((feature) => [feature.properties.name, feature]),
+        )
+        : new Map();
       isOverviewGeometryActive = Boolean(overviewTopology && globe.zoom <= OVERVIEW_LOD_ENTER_ZOOM);
       closeDetailTopology = window.WORLD_TOPOLOGY_CLOSE_DETAIL || null;
       closeDetailCountryGeometryByName = closeDetailTopology
         ? new Map(closeDetailTopology.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]))
+        : new Map();
+      closeDetailCountryFeatureByName = closeDetailTopology
+        ? new Map(
+          window.topojson.feature(closeDetailTopology, closeDetailTopology.objects.countries).features
+            .map((feature) => [feature.properties.name, feature]),
+        )
         : new Map();
       isCloseDetailGeometryActive = Boolean(closeDetailTopology && globe.zoom >= CLOSE_DETAIL_LOD_EXIT_ZOOM);
       countryRenderBounds = countryFeatures.map((feature) => {
@@ -462,12 +481,12 @@
       path({ type: "Sphere" });
       context.clip();
 
-      getVisibleCountries();
+      const countriesOnFront = getVisibleCountries();
 
       context.beginPath();
-      path(visibleCountryFillGeometry);
+      path(countriesOnFront);
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
-      context.fill();
+      context.fill("evenodd");
 
       context.beginPath();
       path(visibleCountryBorderMesh);

@@ -39,13 +39,13 @@
   </div>
 </div>
 
-<!-- Site/Page custom code: replace the /assets/... URLs with your hosted file URLs. -->
-<link rel="stylesheet" href="/assets/globe-widget.css">
+<!-- Site/Page custom code. Assets are served from this repository through jsDelivr. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/joshsimpson94/Globe-App@main/globe-widget.css">
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js"></script>
 <script>
-  window.WORLD_TOPOLOGY_URL = "/assets/countries-50m.json?v=close-detail";
-  window.WORLD_TOPOLOGY_OVERVIEW_URL = "/assets/countries-50m-overview.json?v=close-detail";
-  window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "/assets/countries-50m-close.json?v=close-detail";
+  window.WORLD_TOPOLOGY_URL = "https://cdn.jsdelivr.net/gh/joshsimpson94/Globe-App@main/countries-50m.json?v=tier-matched-fills";
+  window.WORLD_TOPOLOGY_OVERVIEW_URL = "https://cdn.jsdelivr.net/gh/joshsimpson94/Globe-App@main/countries-50m-overview.json?v=tier-matched-fills";
+  window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "https://cdn.jsdelivr.net/gh/joshsimpson94/Globe-App@main/countries-50m-close.json?v=tier-matched-fills";
 </script>
-<script src="/assets/globe-widget.js?v=close-detail"></script>
+<script src="https://cdn.jsdelivr.net/gh/joshsimpson94/Globe-App@main/globe-widget.js?v=tier-matched-fills"></script>
