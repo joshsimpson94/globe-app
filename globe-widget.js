@@ -775,7 +775,7 @@
         suppressFrameClickUntil = Date.now() + 400;
       }
 
-      if (frameTouchPointers.size < 2) {
+      if (wasFramePinching && frameTouchPointers.size < 2) {
         isFramePinching = false;
         pointer.pinchStartDistance = 0;
         updatePointerState(false);
