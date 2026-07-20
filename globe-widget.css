@@ -228,6 +228,12 @@
   background: rgba(18, 47, 67, 0.9);
 }
 
+@media (hover: hover) and (pointer: fine) and (min-width: 561px) {
+  .wf-globe-widget__canvas.is-country-hovered {
+    cursor: pointer;
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
   .wf-globe-widget__zoom-button:hover {
     transform: scale(1.03);

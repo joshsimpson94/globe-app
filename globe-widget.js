@@ -14,6 +14,7 @@
   const CLOSE_DETAIL_LOD_EXIT_ZOOM = 12.2;
   const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
+  const COUNTRY_HOVER_FILL = "#93E8B1";
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
@@ -82,6 +83,7 @@
     const countrySearchClearButton = root.querySelector("[data-country-search-clear]");
     const countrySuggestions = root.querySelector("[data-country-suggestions]");
     const globeStatus = root.querySelector("[data-globe-status]");
+    const desktopHoverMediaQuery = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 561px)");
 
     const requiredElements = [
       frame,
@@ -156,6 +158,7 @@
     let visibleCountryBorderMesh = null;
     let visibleCountryBorderKey = "";
     let selectedCountry = null;
+    let hoveredCountry = null;
     let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
     let activeSuggestionIndex = -1;
@@ -290,6 +293,10 @@
           geometryByName: countryGeometryByName,
           featureByName: countryFeatureByName,
         };
+    }
+
+    function isDesktopHoverEnabled() {
+      return desktopHoverMediaQuery.matches;
     }
 
     function getVisibleCountries() {
@@ -511,14 +518,15 @@
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
 
       for (const country of countriesOnFront.features) {
-        context.beginPath();
-        path(country);
+        fillCountry(country);
+      }
 
-        if (isCountryPathCoveringGlobe()) {
-          drawCountryPolygonParts(country);
-        } else {
-          context.fill();
-        }
+      if (hoveredCountry && hoveredCountry !== selectedCountry && isDesktopHoverEnabled()) {
+        const renderSource = getRenderGeometrySource();
+        const hoveredRenderFeature = renderSource.featureByName.get(hoveredCountry.properties.name) || hoveredCountry;
+
+        context.fillStyle = COUNTRY_HOVER_FILL;
+        fillCountry(hoveredRenderFeature);
       }
 
       context.beginPath();
@@ -537,10 +545,10 @@
         const renderSource = getRenderGeometrySource();
         const selectedRenderFeature = renderSource.featureByName.get(selectedCountry.properties.name) || selectedCountry;
 
+        context.fillStyle = "rgba(255, 212, 102, 0.92)";
+        fillCountry(selectedRenderFeature);
         context.beginPath();
         path(selectedRenderFeature);
-        context.fillStyle = "rgba(255, 212, 102, 0.92)";
-        context.fill();
         context.lineWidth = 1.6;
         context.strokeStyle = "rgba(255, 246, 204, 0.9)";
         context.stroke();
@@ -588,6 +596,17 @@
           context.fill("evenodd");
         }
       });
+    }
+
+    function fillCountry(country) {
+      context.beginPath();
+      path(country);
+
+      if (isCountryPathCoveringGlobe()) {
+        drawCountryPolygonParts(country);
+      } else {
+        context.fill();
+      }
     }
 
     function clearCanvas() {
@@ -1002,17 +1021,26 @@
       );
     }
 
-    function selectCountryAtPoint(clientX, clientY) {
+    function getCountryAtPoint(clientX, clientY) {
       const bounds = canvas.getBoundingClientRect();
       const point = [clientX - bounds.left, clientY - bounds.top];
       const coordinates = projection.invert(point);
 
       if (!coordinates) {
-        clearSelectedCountry();
-        return;
+        return null;
       }
 
-      const match = countryFeatures.find((feature) => window.d3.geoContains(feature, coordinates)) || null;
+      return countryFeatures.find((feature) => window.d3.geoContains(feature, coordinates)) || null;
+    }
+
+    function updateHoveredCountry(clientX, clientY) {
+      const match = getCountryAtPoint(clientX, clientY);
+      hoveredCountry = match === selectedCountry ? null : match;
+      canvas.classList.toggle("is-country-hovered", Boolean(hoveredCountry));
+    }
+
+    function selectCountryAtPoint(clientX, clientY) {
+      const match = getCountryAtPoint(clientX, clientY);
 
       if (!match) {
         clearSelectedCountry();
@@ -1047,6 +1075,10 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  if (event.pointerType === "mouse" && !pointer.dragging && isDesktopHoverEnabled()) {
+    updateHoveredCountry(event.clientX, event.clientY);
+  }
+
   if (!pointer.activePointers.has(event.pointerId)) {
     return;
   }
@@ -1094,6 +1126,11 @@ function onPointerMove(event) {
   globe.pitch = clamp(globe.pitch - dragRotationY, -90, 90);
   globe.velocityX = dragRotationX / 15;
   globe.velocityY = -dragRotationY / 15;
+}
+
+function onPointerLeave() {
+  hoveredCountry = null;
+  canvas.classList.remove("is-country-hovered");
 }
 
 function onPointerUp(event) {
@@ -1250,6 +1287,7 @@ function onPointerCancel(event) {
     frame.addEventListener("click", onFrameClickCapture, true);
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerleave", onPointerLeave);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerCancel);
     canvas.addEventListener("wheel", onWheel, { passive: false });
