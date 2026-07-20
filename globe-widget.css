@@ -34,7 +34,7 @@
   overflow: hidden;
   background:
     radial-gradient(circle at 50% 48%, rgba(80, 208, 255, 0.1), transparent 28%),
-    radial-gradient(circle at 50% 50%, rgba(12, 48, 71, 0.96), rgba(3, 14, 24, 0.98));
+    radial-gradient(circle at 50% 50%, #061c36, #010b1a);
 }
 
 .wf-globe-widget__frame::before {
