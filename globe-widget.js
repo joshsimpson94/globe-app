@@ -1,6 +1,7 @@
 (function () {
   const DRAG_THRESHOLD = 6;
-  const MOBILE_DOUBLE_TAP_DELAY = 200;
+  const MOBILE_DOUBLE_TAP_DELAY = 150;
+  const DESKTOP_DOUBLE_CLICK_DELAY = 150;
   const MOBILE_DOUBLE_TAP_MAX_DISTANCE = 32;
   const MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE = 200;
   const MAX_SUGGESTIONS = 5;
@@ -312,6 +313,18 @@
 
     function isMobileBreakpoint() {
       return mobileBreakpointMediaQuery.matches;
+    }
+
+    function getDoubleTapDelay(event) {
+      if (event.pointerType === "touch" && isMobileBreakpoint()) {
+        return MOBILE_DOUBLE_TAP_DELAY;
+      }
+
+      if (event.pointerType === "mouse" && !isMobileBreakpoint()) {
+        return DESKTOP_DOUBLE_CLICK_DELAY;
+      }
+
+      return 0;
     }
 
     function getCountryBorderWidth(renderSource) {
@@ -1122,15 +1135,16 @@
 
     function beginMobileDoubleTapGesture(event) {
       const previousTap = pendingMobileCountryTap;
+      const doubleTapDelay = getDoubleTapDelay(event);
 
-      if (event.pointerType !== "touch" || !isMobileBreakpoint() || !previousTap) {
+      if (!doubleTapDelay || !previousTap) {
         return false;
       }
 
       const elapsed = performance.now() - previousTap.timestamp;
       const distance = Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y);
 
-      if (elapsed > MOBILE_DOUBLE_TAP_DELAY || distance > MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
+      if (elapsed > doubleTapDelay || distance > MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
         return false;
       }
 
@@ -1140,9 +1154,15 @@
         startY: event.clientY,
         startZoom: globe.targetZoom,
         hasDragged: false,
+        suppressesTextSelection: event.pointerType === "touch",
       };
       canvas.setPointerCapture(event.pointerId);
       updatePointerState(true);
+      // iOS can start native text selection before a drag crosses our threshold.
+      // Only suppress it for a touch-based potential double-tap hold, never a single tap.
+      if (mobileDoubleTapGesture.suppressesTextSelection) {
+        setPageTextSelectionSuppressed(true);
+      }
       event.preventDefault();
       return true;
     }
@@ -1157,10 +1177,6 @@
       const verticalDistance = event.clientY - gesture.startY;
 
       if (Math.abs(verticalDistance) > DRAG_THRESHOLD) {
-        if (!gesture.hasDragged) {
-          setPageTextSelectionSuppressed(true);
-        }
-
         gesture.hasDragged = true;
         setTargetZoomFromUser(gesture.startZoom * Math.exp(verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
       }
@@ -1182,7 +1198,9 @@
 
       mobileDoubleTapGesture = null;
       updatePointerState(false);
-      setPageTextSelectionSuppressed(false);
+      if (gesture.suppressesTextSelection) {
+        setPageTextSelectionSuppressed(false);
+      }
 
       if (!isCancelled && !gesture.hasDragged) {
         zoomBy(0.75);
@@ -1205,11 +1223,15 @@
 
       mobileDoubleTapGesture = null;
       updatePointerState(false);
-      setPageTextSelectionSuppressed(false);
+      if (gesture.suppressesTextSelection) {
+        setPageTextSelectionSuppressed(false);
+      }
     }
 
     function handleTap(event) {
-      if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
+      const doubleTapDelay = getDoubleTapDelay(event);
+
+      if (!doubleTapDelay) {
         selectCountryAtPoint(event.clientX, event.clientY);
         return;
       }
@@ -1222,7 +1244,7 @@
         const elapsed = now - previousTap.timestamp;
         const distance = Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y);
 
-        if (elapsed <= MOBILE_DOUBLE_TAP_DELAY && distance <= MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
+        if (elapsed <= doubleTapDelay && distance <= MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
           clearPendingMobileCountryTap();
           zoomBy(0.75);
           return;
@@ -1247,7 +1269,7 @@
 
         pendingMobileCountryTap = null;
         selectCountry(tap.country);
-      }, MOBILE_DOUBLE_TAP_DELAY);
+      }, doubleTapDelay);
       pendingMobileCountryTap = tap;
     }
 
