@@ -3,15 +3,17 @@
   const MAX_SUGGESTIONS = 5;
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
+  const CLOSE_ZOOM_ROTATION_SPEED = 0.003;
+  const SELECTED_COUNTRY_ROTATION_EASE = 0.14;
   const DEFAULT_SELECTED_COUNTRY_ZOOM = 8;
   const SMALL_COUNTRY_FIT_ZOOM_THRESHOLD = 50;
   const AUTO_ROTATION_ZOOM_REFERENCE = 5;
-  const OVERVIEW_LOD_ENTER_ZOOM = 2.9;
-  const OVERVIEW_LOD_EXIT_ZOOM = 3;
-  const CLOSE_DETAIL_LOD_ENTER_ZOOM = 7;
-  const CLOSE_DETAIL_LOD_EXIT_ZOOM = 7.2;
-  const SELECTED_COUNTRY_FIT_WIDTH = 0.72;
-  const SELECTED_COUNTRY_FIT_HEIGHT = 0.54;
+  const OVERVIEW_LOD_ENTER_ZOOM = 3.4;
+  const OVERVIEW_LOD_EXIT_ZOOM = 3.5;
+  const CLOSE_DETAIL_LOD_ENTER_ZOOM = 12;
+  const CLOSE_DETAIL_LOD_EXIT_ZOOM = 12.2;
+  const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
+  const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
@@ -110,7 +112,7 @@
       zoom: 1.05,
       targetZoom: 1.05,
       minZoom: 0.75,
-      maxZoom: 30,
+      maxZoom: 20,
       baseRadius: 0,
       radius: 0,
       centerX: 0,
@@ -164,13 +166,26 @@
     let staticLayerCanvas = null;
     let staticLayerKey = "";
 
-    function getAutoRotationSpeed() {
+    function getAutoRotationSpeed(zoom = globe.zoom) {
       const zoomProgress = clamp(
-        (globe.zoom - globe.minZoom) / (AUTO_ROTATION_ZOOM_REFERENCE - globe.minZoom),
+        (zoom - globe.minZoom) / (AUTO_ROTATION_ZOOM_REFERENCE - globe.minZoom),
         0,
         1,
       );
-      return AUTO_ROTATION_SPEED + (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
+      const standardZoomSpeed = AUTO_ROTATION_SPEED +
+        (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
+
+      if (zoom <= AUTO_ROTATION_ZOOM_REFERENCE) {
+        return standardZoomSpeed;
+      }
+
+      const closeZoomProgress = clamp(
+        (zoom - AUTO_ROTATION_ZOOM_REFERENCE) / (globe.maxZoom - AUTO_ROTATION_ZOOM_REFERENCE),
+        0,
+        1,
+      );
+      return SELECTED_COUNTRY_ROTATION_SPEED +
+        (CLOSE_ZOOM_ROTATION_SPEED - SELECTED_COUNTRY_ROTATION_SPEED) * closeZoomProgress;
     }
 
     function setSearchExpanded(isExpanded) {
@@ -519,8 +534,11 @@
       context.stroke();
 
       if (selectedCountry) {
+        const renderSource = getRenderGeometrySource();
+        const selectedRenderFeature = renderSource.featureByName.get(selectedCountry.properties.name) || selectedCountry;
+
         context.beginPath();
-        path(selectedCountry);
+        path(selectedRenderFeature);
         context.fillStyle = "rgba(255, 212, 102, 0.92)";
         context.fill();
         context.lineWidth = 1.6;
@@ -624,8 +642,11 @@
           globe.pitch = clamp(nextPitch, -90, 90);
         }
 
-        const targetVelocityX = selectedCountry ? SELECTED_COUNTRY_ROTATION_SPEED : getAutoRotationSpeed();
-        globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(0.02, frameScale);
+        const targetVelocityX = selectedCountry
+          ? Math.min(SELECTED_COUNTRY_ROTATION_SPEED, getAutoRotationSpeed(globe.targetZoom))
+          : getAutoRotationSpeed();
+        const rotationEase = selectedCountry ? SELECTED_COUNTRY_ROTATION_EASE : 0.02;
+        globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(rotationEase, frameScale);
         globe.velocityY *= Math.pow(0.996, frameScale);
       }
 
