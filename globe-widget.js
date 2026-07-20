@@ -1,7 +1,8 @@
 (function () {
   const DRAG_THRESHOLD = 6;
-  const MOBILE_DOUBLE_TAP_DELAY = 260;
+  const MOBILE_DOUBLE_TAP_DELAY = 200;
   const MOBILE_DOUBLE_TAP_MAX_DISTANCE = 32;
+  const MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE = 200;
   const MAX_SUGGESTIONS = 5;
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
@@ -177,6 +178,7 @@
     let staticLayerCanvas = null;
     let staticLayerKey = "";
     let pendingMobileCountryTap = null;
+    let mobileDoubleTapGesture = null;
 
     function getAutoRotationSpeed(zoom = globe.zoom) {
       const zoomProgress = clamp(
@@ -758,6 +760,7 @@
 
     function beginPinchZoom() {
       clearPendingMobileCountryTap();
+      cancelMobileDoubleTapGesture();
       pointer.pinching = true;
       pointer.moved = true;
       pointer.pinchStartDistance = getPinchDistance();
@@ -776,6 +779,7 @@
 
     function beginFramePinchZoom() {
       clearPendingMobileCountryTap();
+      cancelMobileDoubleTapGesture();
       isFramePinching = true;
       pointer.activePointers.clear();
       pointer.pinching = false;
@@ -1112,6 +1116,88 @@
       pendingMobileCountryTap = null;
     }
 
+    function beginMobileDoubleTapGesture(event) {
+      const previousTap = pendingMobileCountryTap;
+
+      if (event.pointerType !== "touch" || !isMobileBreakpoint() || !previousTap) {
+        return false;
+      }
+
+      const elapsed = performance.now() - previousTap.timestamp;
+      const distance = Math.hypot(event.clientX - previousTap.x, event.clientY - previousTap.y);
+
+      if (elapsed > MOBILE_DOUBLE_TAP_DELAY || distance > MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
+        return false;
+      }
+
+      clearPendingMobileCountryTap();
+      mobileDoubleTapGesture = {
+        pointerId: event.pointerId,
+        startY: event.clientY,
+        startZoom: globe.targetZoom,
+        hasDragged: false,
+      };
+      canvas.setPointerCapture(event.pointerId);
+      updatePointerState(true);
+      event.preventDefault();
+      return true;
+    }
+
+    function updateMobileDoubleTapGesture(event) {
+      const gesture = mobileDoubleTapGesture;
+
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return false;
+      }
+
+      const verticalDistance = event.clientY - gesture.startY;
+
+      if (Math.abs(verticalDistance) > DRAG_THRESHOLD) {
+        gesture.hasDragged = true;
+        setTargetZoomFromUser(gesture.startZoom * Math.exp(-verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
+      }
+
+      event.preventDefault();
+      return true;
+    }
+
+    function endMobileDoubleTapGesture(event, isCancelled = false) {
+      const gesture = mobileDoubleTapGesture;
+
+      if (!gesture || event.pointerId !== gesture.pointerId) {
+        return false;
+      }
+
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+
+      mobileDoubleTapGesture = null;
+      updatePointerState(false);
+
+      if (!isCancelled && !gesture.hasDragged) {
+        zoomBy(0.75);
+      }
+
+      event.preventDefault();
+      return true;
+    }
+
+    function cancelMobileDoubleTapGesture() {
+      const gesture = mobileDoubleTapGesture;
+
+      if (!gesture) {
+        return;
+      }
+
+      if (canvas.hasPointerCapture(gesture.pointerId)) {
+        canvas.releasePointerCapture(gesture.pointerId);
+      }
+
+      mobileDoubleTapGesture = null;
+      updatePointerState(false);
+    }
+
     function handleTap(event) {
       if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
         selectCountryAtPoint(event.clientX, event.clientY);
@@ -1156,6 +1242,10 @@
     }
 
 function onPointerDown(event) {
+  if (beginMobileDoubleTapGesture(event)) {
+    return;
+  }
+
   isIntroPitchDriftActive = false;
   storeActivePointer(event);
   updatePointerState(true);
@@ -1175,6 +1265,10 @@ function onPointerDown(event) {
 }
 
 function onPointerMove(event) {
+  if (updateMobileDoubleTapGesture(event)) {
+    return;
+  }
+
   if (event.pointerType === "mouse" && !pointer.dragging && isDesktopHoverEnabled()) {
     updateHoveredCountry(event.clientX, event.clientY);
   }
@@ -1234,6 +1328,10 @@ function onPointerLeave() {
 }
 
 function onPointerUp(event) {
+  if (endMobileDoubleTapGesture(event)) {
+    return;
+  }
+
   const wasTap = pointer.dragging && !pointer.moved && pointer.activePointers.size === 1 && pointer.activePointers.has(event.pointerId);
 
   pointer.activePointers.delete(event.pointerId);
@@ -1262,6 +1360,10 @@ function onPointerUp(event) {
 }
 
 function onPointerCancel(event) {
+  if (endMobileDoubleTapGesture(event, true)) {
+    return;
+  }
+
   pointer.activePointers.delete(event.pointerId);
 
   if (canvas.hasPointerCapture(event.pointerId)) {
