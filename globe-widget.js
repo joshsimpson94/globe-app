@@ -484,11 +484,18 @@
       const countriesOnFront = getVisibleCountries();
 
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
-      countriesOnFront.features.forEach((country) => {
+
+      for (const country of countriesOnFront.features) {
         context.beginPath();
         path(country);
+
+        if (isCountryPathCoveringGlobe()) {
+          console.warn("Skipped globe-covering country path:", country.properties.name);
+          continue;
+        }
+
         context.fill();
-      });
+      }
 
       context.beginPath();
       path(visibleCountryBorderMesh);
@@ -513,6 +520,32 @@
       }
 
       context.restore();
+    }
+
+    function isCountryPathCoveringGlobe() {
+      const sampleOffsets = [
+        [0, 0],
+        [-0.55, 0],
+        [0.55, 0],
+        [0, -0.55],
+        [0, 0.55],
+        [-0.38, -0.38],
+        [0.38, -0.38],
+        [-0.38, 0.38],
+        [0.38, 0.38],
+      ];
+      let coveredSamples = 0;
+
+      sampleOffsets.forEach(([x, y]) => {
+        if (context.isPointInPath(
+          Math.round((globe.centerX + x * globe.radius) * pixelRatio),
+          Math.round((globe.centerY + y * globe.radius) * pixelRatio),
+        )) {
+          coveredSamples += 1;
+        }
+      });
+
+      return coveredSamples >= sampleOffsets.length - 1;
     }
 
     function clearCanvas() {
