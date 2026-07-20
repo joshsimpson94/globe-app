@@ -28,7 +28,7 @@
       <canvas class="wf-globe-widget__canvas" data-globe-canvas aria-label="Interactive rotating globe"></canvas>
 
       <form class="wf-globe-widget__search" data-country-search-form role="search" autocomplete="off">
-        <input class="wf-globe-widget__input" data-country-search-input type="text" placeholder="Search countries" aria-label="Search countries" role="combobox" aria-autocomplete="list" aria-controls="countrySuggestions" aria-expanded="false" spellcheck="false">
+        <input class="wf-globe-widget__input" data-country-search-input type="text" placeholder="Search countries" aria-label="Search countries" role="combobox" aria-autocomplete="list" aria-controls="countrySuggestions" aria-expanded="false" enterkeyhint="done" spellcheck="false">
         <button class="wf-globe-widget__search-clear" data-country-search-clear type="button" aria-label="Clear search" hidden>
           <span class="wf-globe-widget__search-clear-icon" aria-hidden="true"></span>
         </button>
@@ -59,6 +59,6 @@
     window.WORLD_TOPOLOGY_OVERVIEW_URL = "countries-50m-overview.json?v=tier-matched-fills";
     window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "countries-50m-close.json?v=tier-matched-fills";
   </script>
-  <script src="globe-widget.js?v=panel-deselect-action"></script>
+  <script src="globe-widget.js?v=max-zoom-30x"></script>
 </body>
 </html>

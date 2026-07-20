@@ -251,7 +251,7 @@
   background: rgba(8, 25, 38, 0.7);
   color: var(--wf-globe-text);
   font-size: 1rem;
-  font-weight: 500;
+  font-weight: 600;
   text-align: center;
   transform: translateX(-50%);
   backdrop-filter: blur(10px);
@@ -269,7 +269,6 @@
 .wf-globe-widget__label {
   display: block;
   min-width: 0;
-  font-weight: 700;
   text-align: center;
 }
 

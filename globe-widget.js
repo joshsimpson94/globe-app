@@ -108,7 +108,7 @@
       zoom: 1.05,
       targetZoom: 1.05,
       minZoom: 0.75,
-      maxZoom: 40,
+      maxZoom: 30,
       baseRadius: 0,
       radius: 0,
       centerX: 0,
@@ -1011,6 +1011,8 @@ function onPointerCancel(event) {
       if (match) {
         focusOnCountry(match);
       }
+
+      countrySearchInput.blur();
     }
 
     function onCountrySearchInput() {
