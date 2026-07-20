@@ -483,10 +483,12 @@
 
       const countriesOnFront = getVisibleCountries();
 
-      context.beginPath();
-      path(countriesOnFront);
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
-      context.fill("evenodd");
+      countriesOnFront.features.forEach((country) => {
+        context.beginPath();
+        path(country);
+        context.fill();
+      });
 
       context.beginPath();
       path(visibleCountryBorderMesh);
