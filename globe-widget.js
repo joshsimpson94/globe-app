@@ -67,6 +67,7 @@
   }
 
   function createGlobeWidget(root) {
+    const frame = root.querySelector(".wf-globe-widget__frame");
     const canvas = root.querySelector("[data-globe-canvas]");
     const context = canvas && canvas.getContext("2d");
     const countryLabel = root.querySelector("[data-country-label]");
@@ -81,6 +82,7 @@
     const globeStatus = root.querySelector("[data-globe-status]");
 
     const requiredElements = [
+      frame,
       canvas,
       context,
       countryLabel,
@@ -127,6 +129,9 @@
       pinchStartDistance: 0,
       pinchStartZoom: 0,
     };
+    const frameTouchPointers = new Map();
+    let isFramePinching = false;
+    let suppressFrameClickUntil = 0;
 
     let countries;
     let projection;
@@ -685,6 +690,127 @@
       pointer.pinchStartZoom = globe.targetZoom;
     }
 
+    function getFramePinchDistance() {
+      const activePoints = Array.from(frameTouchPointers.values());
+
+      if (activePoints.length < 2) {
+        return 0;
+      }
+
+      return Math.hypot(activePoints[0].x - activePoints[1].x, activePoints[0].y - activePoints[1].y);
+    }
+
+    function beginFramePinchZoom() {
+      isFramePinching = true;
+      pointer.activePointers.clear();
+      pointer.pinching = false;
+      pointer.pinchStartDistance = getFramePinchDistance();
+      pointer.pinchStartZoom = globe.targetZoom;
+      updatePointerState(false);
+
+      frameTouchPointers.forEach((_, pointerId) => {
+        if (!frame.hasPointerCapture(pointerId)) {
+          frame.setPointerCapture(pointerId);
+        }
+      });
+
+      const activeElement = document.activeElement;
+      if (activeElement && typeof activeElement.blur === "function") {
+        activeElement.blur();
+      }
+    }
+
+    function onFrameTouchPointerDown(event) {
+      if (event.pointerType !== "touch") {
+        return;
+      }
+
+      frameTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (!isFramePinching && frameTouchPointers.size < 2) {
+        return;
+      }
+
+      if (!isFramePinching) {
+        beginFramePinchZoom();
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function onFrameTouchPointerMove(event) {
+      if (event.pointerType !== "touch" || !frameTouchPointers.has(event.pointerId)) {
+        return;
+      }
+
+      frameTouchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (!isFramePinching) {
+        return;
+      }
+
+      const pinchDistance = getFramePinchDistance();
+      if (pinchDistance > 0 && pointer.pinchStartDistance > 0 && frameTouchPointers.size >= 2) {
+        setTargetZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function endFrameTouchPointer(event) {
+      if (event.pointerType !== "touch" || !frameTouchPointers.has(event.pointerId)) {
+        return false;
+      }
+
+      const wasFramePinching = isFramePinching;
+      frameTouchPointers.delete(event.pointerId);
+
+      if (frame.hasPointerCapture(event.pointerId)) {
+        frame.releasePointerCapture(event.pointerId);
+      }
+
+      if (wasFramePinching) {
+        suppressFrameClickUntil = Date.now() + 400;
+      }
+
+      if (frameTouchPointers.size < 2) {
+        isFramePinching = false;
+        pointer.pinchStartDistance = 0;
+        updatePointerState(false);
+      }
+
+      return wasFramePinching;
+    }
+
+    function onFrameTouchPointerUp(event) {
+      if (!endFrameTouchPointer(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function onFrameTouchPointerCancel(event) {
+      if (!endFrameTouchPointer(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    function onFrameClickCapture(event) {
+      if (Date.now() >= suppressFrameClickUntil) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
     function resetSinglePointerDrag() {
       const remainingPointer = Array.from(pointer.activePointers.values())[0];
 
@@ -1096,6 +1222,11 @@ function onPointerCancel(event) {
         drawFrame();
       }
     });
+    frame.addEventListener("pointerdown", onFrameTouchPointerDown, { capture: true, passive: false });
+    frame.addEventListener("pointermove", onFrameTouchPointerMove, { capture: true, passive: false });
+    frame.addEventListener("pointerup", onFrameTouchPointerUp, { capture: true, passive: false });
+    frame.addEventListener("pointercancel", onFrameTouchPointerCancel, { capture: true, passive: false });
+    frame.addEventListener("click", onFrameClickCapture, true);
     canvas.addEventListener("pointerdown", onPointerDown);
     canvas.addEventListener("pointermove", onPointerMove);
     canvas.addEventListener("pointerup", onPointerUp);
