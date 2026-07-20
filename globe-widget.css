@@ -31,6 +31,10 @@
   height: var(--wf-globe-height);
   min-height: 0;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   overflow: hidden;
   background:
     radial-gradient(circle at 50% 48%, rgba(80, 208, 255, 0.1), transparent 28%),
@@ -56,6 +60,9 @@
   height: 100%;
   cursor: grab;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .wf-globe-widget__canvas.is-dragging {
@@ -92,6 +99,8 @@
   font-weight: 400;
   line-height: 1.2;
   outline: none;
+  -webkit-user-select: text;
+  user-select: text;
   backdrop-filter: blur(10px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.2);
   transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;

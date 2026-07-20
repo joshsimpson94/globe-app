@@ -1154,7 +1154,7 @@
 
       if (Math.abs(verticalDistance) > DRAG_THRESHOLD) {
         gesture.hasDragged = true;
-        setTargetZoomFromUser(gesture.startZoom * Math.exp(-verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
+        setTargetZoomFromUser(gesture.startZoom * Math.exp(verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
       }
 
       event.preventDefault();
@@ -1242,6 +1242,10 @@
     }
 
 function onPointerDown(event) {
+  if (event.pointerType === "touch") {
+    event.preventDefault();
+  }
+
   if (beginMobileDoubleTapGesture(event)) {
     return;
   }
@@ -1492,6 +1496,8 @@ function onPointerCancel(event) {
     canvas.addEventListener("pointerleave", onPointerLeave);
     canvas.addEventListener("pointerup", onPointerUp);
     canvas.addEventListener("pointercancel", onPointerCancel);
+    canvas.addEventListener("selectstart", (event) => event.preventDefault());
+    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
     canvas.addEventListener("wheel", onWheel, { passive: false });
     zoomInButton.addEventListener("click", () => zoomBy(0.75));
     zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
