@@ -7,7 +7,9 @@ This folder contains the Webflow-ready globe.
 - `embed-snippet.html`: markup to paste into a Webflow Embed element.
 - `globe-widget.css`: scoped styles for the widget.
 - `globe-widget.js`: scoped initializer and globe behavior.
-- `countries-110m.js`: world country topology data.
+- `countries-50m.json`: higher-detail world country topology data, including microstates.
+- `countries-50m-overview.json`: lower-detail topology used only for the fully zoomed-out globe.
+- `countries-50m-close.json`: full-detail topology used only close to maximum zoom.
 - `demo.html`: local test page.
 
 ## Webflow Setup
@@ -15,13 +17,17 @@ This folder contains the Webflow-ready globe.
 1. Host these custom files somewhere public:
    - `globe-widget.css`
    - `globe-widget.js`
-   - `countries-110m.js`
+   - `countries-50m.json`
+   - `countries-50m-overview.json`
+   - `countries-50m-close.json`
 
 2. Paste the contents of `embed-snippet.html` into a Webflow Embed element.
 
 3. Replace these placeholder paths with the hosted URLs:
    - `/assets/globe-widget.css`
-   - `/assets/countries-110m.js`
+   - `/assets/countries-50m.json`
+   - `/assets/countries-50m-overview.json`
+   - `/assets/countries-50m-close.json`
    - `/assets/globe-widget.js`
 
 The snippet loads D3 and TopoJSON from jsDelivr. If you prefer to avoid CDN dependencies, host `d3.min.js` and `topojson-client.min.js` too, then replace those script URLs.

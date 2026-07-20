@@ -4,6 +4,11 @@
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
   const SELECTED_COUNTRY_ZOOM = 3.5;
+  const AUTO_ROTATION_ZOOM_REFERENCE = 5;
+  const OVERVIEW_LOD_ENTER_ZOOM = 2.3;
+  const OVERVIEW_LOD_EXIT_ZOOM = 2.4;
+  const CLOSE_DETAIL_LOD_ENTER_ZOOM = 7;
+  const CLOSE_DETAIL_LOD_EXIT_ZOOM = 7.2;
   const SELECTED_COUNTRY_FIT_WIDTH = 0.72;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.54;
   const INITIAL_PITCH_VELOCITY = -0.075;
@@ -99,7 +104,7 @@
       zoom: 1.05,
       targetZoom: 1.05,
       minZoom: 0.75,
-      maxZoom: 5,
+      maxZoom: 10,
       baseRadius: 0,
       radius: 0,
       centerX: 0,
@@ -124,6 +129,19 @@
     let path;
     let graticule;
     let countryFeatures = [];
+    let countryRenderBounds = [];
+    let countryGeometryByName = new Map();
+    let overviewTopology = null;
+    let overviewCountryGeometryByName = new Map();
+    let isOverviewGeometryActive = false;
+    let closeDetailTopology = null;
+    let closeDetailCountryGeometryByName = new Map();
+    let isCloseDetailGeometryActive = false;
+    const visibleCountries = { type: "FeatureCollection", features: [] };
+    const visibleCountryGeometries = { type: "GeometryCollection", geometries: [] };
+    let visibleCountryFillGeometry = null;
+    let visibleCountryBorderMesh = null;
+    let visibleCountryBorderKey = "";
     let selectedCountry = null;
     let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
@@ -131,9 +149,16 @@
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
     let lastFrameTime = null;
+    let pixelRatio = 1;
+    let staticLayerCanvas = null;
+    let staticLayerKey = "";
 
     function getAutoRotationSpeed() {
-      const zoomProgress = clamp((globe.zoom - globe.minZoom) / (globe.maxZoom - globe.minZoom), 0, 1);
+      const zoomProgress = clamp(
+        (globe.zoom - globe.minZoom) / (AUTO_ROTATION_ZOOM_REFERENCE - globe.minZoom),
+        0,
+        1,
+      );
       return AUTO_ROTATION_SPEED + (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
     }
 
@@ -176,6 +201,104 @@
       closeSuggestions();
     }
 
+    function getFeatureAngularRadius(feature, center) {
+      let radius = 0;
+
+      function measureCoordinates(coordinates) {
+        if (typeof coordinates[0] === "number") {
+          radius = Math.max(radius, window.d3.geoDistance(center, coordinates));
+          return;
+        }
+
+        coordinates.forEach(measureCoordinates);
+      }
+
+      measureCoordinates(feature.geometry.coordinates);
+      return radius;
+    }
+
+    function getRenderGeometrySource() {
+      if (closeDetailTopology) {
+        if (isCloseDetailGeometryActive && globe.zoom < CLOSE_DETAIL_LOD_ENTER_ZOOM) {
+          isCloseDetailGeometryActive = false;
+        } else if (!isCloseDetailGeometryActive && globe.zoom > CLOSE_DETAIL_LOD_EXIT_ZOOM) {
+          isCloseDetailGeometryActive = true;
+        }
+
+        if (isCloseDetailGeometryActive) {
+          return {
+            key: "close-detail",
+            topology: closeDetailTopology,
+            geometryByName: closeDetailCountryGeometryByName,
+          };
+        }
+      }
+
+      if (!overviewTopology) {
+        return {
+          key: "detail",
+          topology: window.WORLD_TOPOLOGY,
+          geometryByName: countryGeometryByName,
+        };
+      }
+
+      if (isOverviewGeometryActive && globe.zoom > OVERVIEW_LOD_EXIT_ZOOM) {
+        isOverviewGeometryActive = false;
+      } else if (!isOverviewGeometryActive && globe.zoom < OVERVIEW_LOD_ENTER_ZOOM) {
+        isOverviewGeometryActive = true;
+      }
+
+      return isOverviewGeometryActive
+        ? {
+          key: "overview",
+          topology: overviewTopology,
+          geometryByName: overviewCountryGeometryByName,
+        }
+        : {
+          key: "detail",
+          topology: window.WORLD_TOPOLOGY,
+          geometryByName: countryGeometryByName,
+        };
+    }
+
+    function getVisibleCountries() {
+      const viewCenter = projection.invert([globe.centerX, globe.centerY]);
+      const features = visibleCountries.features;
+      const renderSource = getRenderGeometrySource();
+      const viewportRadius = Math.hypot(
+        Math.max(globe.centerX, canvas.width / pixelRatio - globe.centerX),
+        Math.max(globe.centerY, canvas.height / pixelRatio - globe.centerY),
+      );
+      const viewportAngle = Math.asin(Math.min(1, viewportRadius / globe.radius));
+
+      features.length = 0;
+
+      countryRenderBounds.forEach(({ feature, center, radius }) => {
+        if (window.d3.geoDistance(viewCenter, center) <= viewportAngle + radius + 0.01) {
+          features.push(feature);
+        }
+      });
+
+      const borderKey = `${renderSource.key}:${features.map((feature) => feature.properties.name).join(",")}`;
+
+      if (borderKey !== visibleCountryBorderKey) {
+        visibleCountryGeometries.geometries = features
+          .map((feature) => renderSource.geometryByName.get(feature.properties.name))
+          .filter(Boolean);
+        visibleCountryFillGeometry = window.topojson.merge(
+          renderSource.topology,
+          visibleCountryGeometries.geometries,
+        );
+        visibleCountryBorderMesh = window.topojson.mesh(
+          renderSource.topology,
+          visibleCountryGeometries,
+        );
+        visibleCountryBorderKey = borderKey;
+      }
+
+      return visibleCountries;
+    }
+
     function initializeDependencies() {
       if (!context) {
         showGlobeStatus("Your browser could not start the globe canvas.");
@@ -194,6 +317,28 @@
       countryFeatures = countries.features
         .filter((feature) => feature && feature.properties && feature.properties.name)
         .sort((left, right) => left.properties.name.localeCompare(right.properties.name));
+      countryGeometryByName = new Map(
+        window.WORLD_TOPOLOGY.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]),
+      );
+      overviewTopology = window.WORLD_TOPOLOGY_OVERVIEW || null;
+      overviewCountryGeometryByName = overviewTopology
+        ? new Map(overviewTopology.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]))
+        : new Map();
+      isOverviewGeometryActive = Boolean(overviewTopology && globe.zoom <= OVERVIEW_LOD_ENTER_ZOOM);
+      closeDetailTopology = window.WORLD_TOPOLOGY_CLOSE_DETAIL || null;
+      closeDetailCountryGeometryByName = closeDetailTopology
+        ? new Map(closeDetailTopology.objects.countries.geometries.map((geometry) => [geometry.properties.name, geometry]))
+        : new Map();
+      isCloseDetailGeometryActive = Boolean(closeDetailTopology && globe.zoom >= CLOSE_DETAIL_LOD_EXIT_ZOOM);
+      countryRenderBounds = countryFeatures.map((feature) => {
+        const center = window.d3.geoCentroid(feature);
+
+        return {
+          feature,
+          center,
+          radius: getFeatureAngularRadius(feature, center),
+        };
+      });
 
       globeStatus.hidden = true;
       return true;
@@ -201,11 +346,12 @@
 
     function resizeCanvas() {
       const bounds = canvas.getBoundingClientRect();
-      const ratio = window.devicePixelRatio || 1;
+      pixelRatio = window.devicePixelRatio || 1;
 
-      canvas.width = Math.round(bounds.width * ratio);
-      canvas.height = Math.round(bounds.height * ratio);
-      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      canvas.width = Math.round(bounds.width * pixelRatio);
+      canvas.height = Math.round(bounds.height * pixelRatio);
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      staticLayerKey = "";
 
       globe.centerX = bounds.width / 2;
       globe.centerY = bounds.height / 2;
@@ -215,19 +361,19 @@
       projection
         .translate([globe.centerX, globe.centerY])
         .scale(globe.radius)
-        .precision(0.3);
+        .precision(0.6);
     }
 
-    function drawAtmosphere() {
-      context.beginPath();
-      context.arc(globe.centerX, globe.centerY, globe.radius * 1.065, 0, Math.PI * 2);
-      context.lineWidth = globe.radius * 0.09;
-      context.strokeStyle = "rgba(58, 205, 255, 0.08)";
-      context.stroke();
+    function drawAtmosphere(renderContext) {
+      renderContext.beginPath();
+      renderContext.arc(globe.centerX, globe.centerY, globe.radius * 1.065, 0, Math.PI * 2);
+      renderContext.lineWidth = globe.radius * 0.09;
+      renderContext.strokeStyle = "rgba(58, 205, 255, 0.08)";
+      renderContext.stroke();
     }
 
-    function drawSphere() {
-      const ocean = context.createRadialGradient(
+    function drawSphere(renderContext, renderPath) {
+      const ocean = renderContext.createRadialGradient(
         globe.centerX - globe.radius * 0.35,
         globe.centerY - globe.radius * 0.42,
         globe.radius * 0.12,
@@ -241,12 +387,12 @@
       ocean.addColorStop(0.56, "#0b5d8d");
       ocean.addColorStop(1, "#08253a");
 
-      context.beginPath();
-      path({ type: "Sphere" });
-      context.fillStyle = ocean;
-      context.fill();
+      renderContext.beginPath();
+      renderPath({ type: "Sphere" });
+      renderContext.fillStyle = ocean;
+      renderContext.fill();
 
-      const shading = context.createRadialGradient(
+      const shading = renderContext.createRadialGradient(
         globe.centerX + globe.radius * 0.42,
         globe.centerY + globe.radius * 0.4,
         globe.radius * 0.08,
@@ -258,16 +404,56 @@
       shading.addColorStop(0, "rgba(2, 9, 15, 0)");
       shading.addColorStop(1, "rgba(2, 8, 14, 0.72)");
 
-      context.beginPath();
-      path({ type: "Sphere" });
-      context.fillStyle = shading;
-      context.fill();
+      renderContext.beginPath();
+      renderPath({ type: "Sphere" });
+      renderContext.fillStyle = shading;
+      renderContext.fill();
 
-      context.beginPath();
-      path({ type: "Sphere" });
-      context.lineWidth = 1.4;
-      context.strokeStyle = "rgba(191, 242, 255, 0.5)";
-      context.stroke();
+      renderContext.beginPath();
+      renderPath({ type: "Sphere" });
+      renderContext.lineWidth = 1.4;
+      renderContext.strokeStyle = "rgba(191, 242, 255, 0.5)";
+      renderContext.stroke();
+    }
+
+    function getStaticLayerKey() {
+      return [
+        canvas.width,
+        canvas.height,
+        Math.round(globe.radius * pixelRatio),
+      ].join(":");
+    }
+
+    function drawStaticLayers() {
+      const isZoomSettled = Math.abs(globe.zoom - globe.targetZoom) < 0.001;
+
+      if (!isZoomSettled) {
+        drawAtmosphere(context);
+        drawSphere(context, path);
+        staticLayerKey = "";
+        return;
+      }
+
+      const nextStaticLayerKey = getStaticLayerKey();
+
+      if (staticLayerKey !== nextStaticLayerKey) {
+        staticLayerCanvas = staticLayerCanvas || document.createElement("canvas");
+        staticLayerCanvas.width = canvas.width;
+        staticLayerCanvas.height = canvas.height;
+
+        const staticContext = staticLayerCanvas.getContext("2d");
+        staticContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        const staticPath = window.d3.geoPath(projection, staticContext);
+
+        drawAtmosphere(staticContext);
+        drawSphere(staticContext, staticPath);
+        staticLayerKey = nextStaticLayerKey;
+      }
+
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.drawImage(staticLayerCanvas, 0, 0);
+      context.restore();
     }
 
     function drawWorld() {
@@ -276,10 +462,15 @@
       path({ type: "Sphere" });
       context.clip();
 
+      getVisibleCountries();
+
       context.beginPath();
-      path(countries);
+      path(visibleCountryFillGeometry);
       context.fillStyle = "rgba(116, 222, 154, 0.86)";
       context.fill();
+
+      context.beginPath();
+      path(visibleCountryBorderMesh);
       context.lineWidth = 0.7;
       context.strokeStyle = "rgba(210, 255, 231, 0.28)";
       context.stroke();
@@ -317,8 +508,7 @@
       projection.scale(globe.radius);
 
       clearCanvas();
-      drawAtmosphere();
-      drawSphere();
+      drawStaticLayers();
       drawWorld();
     }
 
@@ -497,7 +687,8 @@
     }
 
     function zoomBy(delta) {
-      setTargetZoom(globe.targetZoom + delta);
+      const zoomFactor = 1 + Math.abs(delta) * 0.9;
+      setTargetZoom(globe.targetZoom * (delta > 0 ? zoomFactor : 1 / zoomFactor));
     }
 
     function getCountryFitZoom(feature) {
@@ -856,9 +1047,70 @@ function onPointerCancel(event) {
     init: initGlobeWidgets,
   };
 
+  function fetchTopology(topologyUrl) {
+    return window.fetch(topologyUrl)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Could not load country geometry: ${response.status}`);
+        }
+
+        return response.json();
+      });
+  }
+
+  function loadWorldTopology() {
+    const detailedTopology = window.WORLD_TOPOLOGY
+      ? Promise.resolve(window.WORLD_TOPOLOGY)
+      : fetchTopology(window.WORLD_TOPOLOGY_URL || "countries-50m.json");
+    const overviewUrl = window.WORLD_TOPOLOGY_OVERVIEW_URL;
+    const overviewTopology = window.WORLD_TOPOLOGY_OVERVIEW
+      ? Promise.resolve(window.WORLD_TOPOLOGY_OVERVIEW)
+      : overviewUrl
+        ? fetchTopology(overviewUrl).catch((error) => {
+          console.warn("Globe overview geometry failed to load; using detailed geometry.", error);
+          return null;
+        })
+        : Promise.resolve(null);
+    const closeDetailUrl = window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL;
+    const closeDetailTopology = window.WORLD_TOPOLOGY_CLOSE_DETAIL
+      ? Promise.resolve(window.WORLD_TOPOLOGY_CLOSE_DETAIL)
+      : closeDetailUrl
+        ? fetchTopology(closeDetailUrl).catch((error) => {
+          console.warn("Globe close-detail geometry failed to load; using standard detail.", error);
+          return null;
+        })
+        : Promise.resolve(null);
+
+    return Promise.all([detailedTopology, overviewTopology, closeDetailTopology]).then(([
+      detailed,
+      overview,
+      closeDetail,
+    ]) => {
+      window.WORLD_TOPOLOGY = detailed;
+
+      if (overview) {
+        window.WORLD_TOPOLOGY_OVERVIEW = overview;
+      }
+
+      if (closeDetail) {
+        window.WORLD_TOPOLOGY_CLOSE_DETAIL = closeDetail;
+      }
+    });
+  }
+
+  function startGlobeWidgets() {
+    loadWorldTopology().then(
+      initGlobeWidgets,
+      (error) => {
+        console.error("Globe country geometry failed to load.", error);
+        initGlobeWidgets();
+      },
+    );
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initGlobeWidgets);
+    document.addEventListener("DOMContentLoaded", startGlobeWidgets);
   } else {
-    initGlobeWidgets();
+    startGlobeWidgets();
   }
 })();
