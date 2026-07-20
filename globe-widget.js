@@ -490,11 +490,10 @@
         path(country);
 
         if (isCountryPathCoveringGlobe()) {
-          console.warn("Skipped globe-covering country path:", country.properties.name);
-          continue;
+          drawCountryPolygonParts(country);
+        } else {
+          context.fill();
         }
-
-        context.fill();
       }
 
       context.beginPath();
@@ -546,6 +545,21 @@
       });
 
       return coveredSamples >= sampleOffsets.length - 1;
+    }
+
+    function drawCountryPolygonParts(country) {
+      if (country.geometry.type !== "MultiPolygon") {
+        return;
+      }
+
+      country.geometry.coordinates.forEach((coordinates) => {
+        context.beginPath();
+        path({ type: "Polygon", coordinates });
+
+        if (!isCountryPathCoveringGlobe()) {
+          context.fill("evenodd");
+        }
+      });
     }
 
     function clearCanvas() {
