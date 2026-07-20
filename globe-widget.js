@@ -3,7 +3,8 @@
   const MAX_SUGGESTIONS = 5;
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
-  const SELECTED_COUNTRY_ZOOM = 3.5;
+  const DEFAULT_SELECTED_COUNTRY_ZOOM = 8;
+  const SMALL_COUNTRY_FIT_ZOOM_THRESHOLD = 50;
   const AUTO_ROTATION_ZOOM_REFERENCE = 5;
   const OVERVIEW_LOD_ENTER_ZOOM = 2.9;
   const OVERVIEW_LOD_EXIT_ZOOM = 3;
@@ -35,6 +36,7 @@
 
   const COUNTRY_FOCUS_CENTERS = {
     France: [2.2137, 46.2276],
+    Netherlands: [5.2913, 52.1326],
   };
 
   function getCountryAcronym(name) {
@@ -69,6 +71,7 @@
     const context = canvas && canvas.getContext("2d");
     const countryLabel = root.querySelector("[data-country-label]");
     const clearSelectionButton = root.querySelector("[data-clear-selection]");
+    const selectionPanel = clearSelectionButton && clearSelectionButton.closest(".wf-globe-widget__hud");
     const zoomInButton = root.querySelector("[data-zoom-in]");
     const zoomOutButton = root.querySelector("[data-zoom-out]");
     const countrySearchForm = root.querySelector("[data-country-search-form]");
@@ -82,6 +85,7 @@
       context,
       countryLabel,
       clearSelectionButton,
+      selectionPanel,
       zoomInButton,
       zoomOutButton,
       countrySearchForm,
@@ -104,7 +108,7 @@
       zoom: 1.05,
       targetZoom: 1.05,
       minZoom: 0.75,
-      maxZoom: 10,
+      maxZoom: 40,
       baseRadius: 0,
       radius: 0,
       centerX: 0,
@@ -188,6 +192,7 @@
     function updateCountryLabel(name) {
       countryLabel.textContent = name || "Select a country";
       clearSelectionButton.hidden = !name;
+      selectionPanel.classList.toggle("is-clearable", Boolean(name));
     }
 
     function showGlobeStatus(message) {
@@ -760,8 +765,8 @@
     }
 
     function getCountryFitZoom(feature) {
-      if (feature.properties.name === "France") {
-        return SELECTED_COUNTRY_ZOOM;
+      if (feature.properties.name === "France" || feature.properties.name === "Netherlands") {
+        return DEFAULT_SELECTED_COUNTRY_ZOOM;
       }
 
       const previousRotate = projection.rotate();
@@ -779,14 +784,25 @@
       const height = bounds[1][1] - bounds[0][1];
 
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return SELECTED_COUNTRY_ZOOM;
+        return DEFAULT_SELECTED_COUNTRY_ZOOM;
       }
 
       const availableWidth = globe.centerX * 2 * SELECTED_COUNTRY_FIT_WIDTH;
       const availableHeight = globe.centerY * 2 * SELECTED_COUNTRY_FIT_HEIGHT;
       const fitZoom = Math.min(availableWidth / width, availableHeight / height);
 
-      return clamp(Math.min(SELECTED_COUNTRY_ZOOM, fitZoom), globe.minZoom, SELECTED_COUNTRY_ZOOM);
+      // Larger countries retain a fitting or standard 10× view.
+      if (fitZoom <= DEFAULT_SELECTED_COUNTRY_ZOOM) {
+        return clamp(fitZoom, globe.minZoom, DEFAULT_SELECTED_COUNTRY_ZOOM);
+      }
+
+      // Only genuinely small countries get the closer fitted view. This
+      // avoids treating countries such as Belgium or Switzerland as microstates.
+      if (fitZoom >= SMALL_COUNTRY_FIT_ZOOM_THRESHOLD) {
+        return clamp(fitZoom, DEFAULT_SELECTED_COUNTRY_ZOOM, globe.maxZoom);
+      }
+
+      return DEFAULT_SELECTED_COUNTRY_ZOOM;
     }
 
     function focusOnCountry(feature) {
@@ -921,10 +937,16 @@ function onPointerMove(event) {
     pointer.moved = true;
   }
 
-  globe.yaw += deltaX * 0.45;
-  globe.pitch = clamp(globe.pitch - deltaY * 0.45, -90, 90);
-  globe.velocityX = deltaX * 0.03;
-  globe.velocityY = -deltaY * 0.03;
+  // Convert screen movement into angular movement using the globe's current
+  // rendered radius. This gives the same on-screen drag distance at every zoom.
+  const degreesPerPixel = 180 / (Math.PI * Math.max(globe.radius, 1));
+  const dragRotationX = deltaX * degreesPerPixel;
+  const dragRotationY = deltaY * degreesPerPixel;
+
+  globe.yaw += dragRotationX;
+  globe.pitch = clamp(globe.pitch - dragRotationY, -90, 90);
+  globe.velocityX = dragRotationX / 15;
+  globe.velocityY = -dragRotationY / 15;
 }
 
 function onPointerUp(event) {
@@ -1080,6 +1102,13 @@ function onPointerCancel(event) {
     zoomInButton.addEventListener("click", () => zoomBy(0.75));
     zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
     clearSelectionButton.addEventListener("click", clearSelectedCountry);
+    selectionPanel.addEventListener("click", (event) => {
+      if (clearSelectionButton.hidden || event.target.closest("[data-clear-selection]")) {
+        return;
+      }
+
+      clearSelectionButton.click();
+    });
     countrySearchClearButton.addEventListener("click", clearSearchInput);
     countrySearchForm.addEventListener("submit", onCountrySearch);
     countrySuggestions.addEventListener("click", onSuggestionClick);
