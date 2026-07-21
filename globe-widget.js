@@ -77,7 +77,7 @@
   };
 
   const COUNTRY_SEARCH_ALIASES = {
-    "United Kingdom": ["UK"],
+    "United Kingdom": ["UK", "England", "Scotland", "Wales", "Northern Ireland"],
     "United States of America": ["USA", "United States"],
     "United Arab Emirates": ["UAE"],
   };
