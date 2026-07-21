@@ -1,7 +1,7 @@
 .wf-globe-widget {
   --wf-globe-text: #eff9ff;
   --wf-globe-panel: #051c36;
-  --wf-globe-panel-border: #082547;
+  --wf-globe-panel-border: #193d69;
   --wf-globe-panel-hover: #193d69;
   --wf-globe-height: 100%;
   --wf-globe-control-offset: 16px;
@@ -140,7 +140,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--wf-globe-panel-border);
+  background: transparent;
   transform: translateY(-50%);
   cursor: pointer;
   transition: background-color 160ms ease;
@@ -318,7 +318,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   align-items: center;
   justify-content: center;
   justify-self: end;
-  background: var(--wf-globe-panel-border);
+  background: transparent;
   cursor: pointer;
   transition: transform 160ms ease, background-color 160ms ease;
 }
