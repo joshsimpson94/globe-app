@@ -11,6 +11,9 @@
   const SELECTED_COUNTRY_ROTATION_EASE = 0.14;
   const DEFAULT_SELECTED_COUNTRY_ZOOM = 8;
   const SMALL_COUNTRY_FIT_ZOOM_THRESHOLD = 50;
+  // About 4,000 km²: tiny countries and island groups should be legible even
+  // when their islands are geographically dispersed.
+  const SMALL_COUNTRY_MAX_ZOOM_AREA = 0.0001;
   const AUTO_ROTATION_ZOOM_REFERENCE = 5;
   const OVERVIEW_LOD_ENTER_ZOOM = 3.9;
   const OVERVIEW_LOD_EXIT_ZOOM = 4;
@@ -39,10 +42,44 @@
       .replace(/'/g, "&#39;");
   }
 
-  const COUNTRY_ACRONYMS = {
-    "United Kingdom": "UK",
-    "United States of America": "USA",
-    "United Arab Emirates": "UAE",
+  const COUNTRY_DISPLAY_NAMES = {
+    "Antigua and Barb.": "Antigua and Barbuda",
+    "Ashmore and Cartier Is.": "Ashmore and Cartier Islands",
+    "Bosnia and Herz.": "Bosnia and Herzegovina",
+    "Br. Indian Ocean Ter.": "British Indian Ocean Territory",
+    "British Virgin Is.": "British Virgin Islands",
+    "Cayman Is.": "Cayman Islands",
+    "Central African Rep.": "Central African Republic",
+    "Cook Is.": "Cook Islands",
+    "Dem. Rep. Congo": "Democratic Republic of the Congo",
+    "Dominican Rep.": "Dominican Republic",
+    "Eq. Guinea": "Equatorial Guinea",
+    "Faeroe Is.": "Faroe Islands",
+    "Falkland Is.": "Falkland Islands",
+    "Fr. Polynesia": "French Polynesia",
+    "Fr. S. Antarctic Lands": "French Southern and Antarctic Lands",
+    "Heard I. and McDonald Is.": "Heard Island and McDonald Islands",
+    "Indian Ocean Ter.": "Indian Ocean Territory",
+    "Marshall Is.": "Marshall Islands",
+    "N. Cyprus": "Northern Cyprus",
+    "N. Mariana Is.": "Northern Mariana Islands",
+    "Pitcairn Is.": "Pitcairn Islands",
+    "S. Geo. and the Is.": "South Georgia and the South Sandwich Islands",
+    "S. Sudan": "South Sudan",
+    "Solomon Is.": "Solomon Islands",
+    "St. Kitts and Nevis": "Saint Kitts and Nevis",
+    "St. Pierre and Miquelon": "Saint Pierre and Miquelon",
+    "St. Vin. and Gren.": "Saint Vincent and the Grenadines",
+    "Turks and Caicos Is.": "Turks and Caicos Islands",
+    "U.S. Virgin Is.": "United States Virgin Islands",
+    "W. Sahara": "Western Sahara",
+    "Wallis and Futuna Is.": "Wallis and Futuna Islands",
+  };
+
+  const COUNTRY_SEARCH_ALIASES = {
+    "United Kingdom": ["UK"],
+    "United States of America": ["USA", "United States"],
+    "United Arab Emirates": ["UAE"],
   };
 
   const COUNTRY_FOCUS_CENTERS = {
@@ -50,13 +87,8 @@
     Netherlands: [5.2913, 52.1326],
   };
 
-  function getCountryAcronym(name) {
-    return COUNTRY_ACRONYMS[name] || null;
-  }
-
   function getDisplayName(feature) {
-    const acronym = getCountryAcronym(feature.properties.name);
-    return acronym ? `${feature.properties.name} (${acronym})` : feature.properties.name;
+    return COUNTRY_DISPLAY_NAMES[feature.properties.name] || feature.properties.name;
   }
 
   function getFocusCenter(feature) {
@@ -64,9 +96,11 @@
   }
 
   function countryMatchesQuery(feature, matches) {
-    const name = feature.properties.name.toLowerCase();
-    const acronym = getCountryAcronym(feature.properties.name);
-    return matches(name) || (acronym !== null && matches(acronym.toLowerCase()));
+    const name = feature.properties.name;
+    const aliases = COUNTRY_SEARCH_ALIASES[name] || [];
+    return matches(name.toLowerCase()) ||
+      matches(getDisplayName(feature).toLowerCase()) ||
+      aliases.some((alias) => matches(alias.toLowerCase()));
   }
 
   function clamp(value, min, max) {
@@ -995,6 +1029,11 @@
         return DEFAULT_SELECTED_COUNTRY_ZOOM;
       }
 
+      const countryArea = window.d3.geoArea(feature);
+      if (Number.isFinite(countryArea) && countryArea <= SMALL_COUNTRY_MAX_ZOOM_AREA) {
+        return globe.maxZoom;
+      }
+
       const previousRotate = projection.rotate();
       const previousScale = projection.scale();
 
@@ -1017,7 +1056,7 @@
       const availableHeight = globe.centerY * 2 * SELECTED_COUNTRY_FIT_HEIGHT;
       const fitZoom = Math.min(availableWidth / width, availableHeight / height);
 
-      // Larger countries retain a fitting or standard 10× view.
+      // Larger countries retain a fitting or standard 8× view.
       if (fitZoom <= DEFAULT_SELECTED_COUNTRY_ZOOM) {
         return clamp(fitZoom, globe.minZoom, DEFAULT_SELECTED_COUNTRY_ZOOM);
       }
