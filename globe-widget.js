@@ -1439,13 +1439,18 @@ function onPointerCancel(event) {
 
       if (match) {
         focusOnCountry(match);
+      }
 
-        if (isMobileBreakpoint()) {
-          countrySearchInput.blur();
-        }
+      dismissSearchKeyboard();
+    }
+
+    function dismissSearchKeyboard() {
+      if (!isMobileBreakpoint()) {
+        return;
       }
 
       countrySearchInput.blur();
+      window.requestAnimationFrame(() => countrySearchInput.blur());
     }
 
     function onCountrySearchInput() {
@@ -1485,6 +1490,7 @@ function onPointerCancel(event) {
       if (event.key === "Enter" && activeSuggestionIndex >= 0) {
         event.preventDefault();
         focusOnCountry(suggestionMatches[activeSuggestionIndex]);
+        dismissSearchKeyboard();
       }
     }
 
@@ -1504,6 +1510,7 @@ function onPointerCancel(event) {
 
       if (match) {
         focusOnCountry(match);
+        dismissSearchKeyboard();
       }
     }
 
