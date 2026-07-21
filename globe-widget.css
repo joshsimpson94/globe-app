@@ -1,7 +1,7 @@
 .wf-globe-widget {
   --wf-globe-text: #eff9ff;
   --wf-globe-height: 100%;
-  --wf-globe-control-offset: clamp(10px, 2.4vw, 18px);
+  --wf-globe-control-offset: 16px;
   --wf-globe-hud-max-width: 391px;
   display: block;
   width: 100%;
@@ -350,6 +350,17 @@ html.wf-globe-widget--touch-gesture-active body * {
     font-weight: 500;
   }
 
+  .wf-globe-widget__search {
+    left: 50%;
+    width: calc(100% - (var(--wf-globe-control-offset) * 2));
+    max-width: var(--wf-globe-hud-max-width);
+    transform: translateX(-50%);
+  }
+
+  .wf-globe-widget__zoom {
+    display: none;
+  }
+
   .wf-globe-widget__search-clear {
     top: 22px;
   }
@@ -372,6 +383,17 @@ html.wf-globe-widget--touch-gesture-active body * {
   .wf-globe-widget__input,
   .wf-globe-widget__zoom-button::before {
     font-weight: 500;
+  }
+
+  .wf-globe-widget__search {
+    left: 50%;
+    width: calc(100% - (var(--wf-globe-control-offset) * 2));
+    max-width: var(--wf-globe-hud-max-width);
+    transform: translateX(-50%);
+  }
+
+  .wf-globe-widget__zoom {
+    display: none;
   }
 
   .wf-globe-widget__search-clear {
