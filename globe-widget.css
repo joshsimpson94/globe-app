@@ -359,10 +359,6 @@ html.wf-globe-widget--touch-gesture-active body * {
     gap: 12px;
   }
 
-  .wf-globe-widget__search-clear {
-    top: 22px;
-  }
-
 }
 
 @media (max-width: 412px) {
@@ -390,10 +386,6 @@ html.wf-globe-widget--touch-gesture-active body * {
 
   .wf-globe-widget__zoom {
     gap: 12px;
-  }
-
-  .wf-globe-widget__search-clear {
-    top: 22px;
   }
 
 }
