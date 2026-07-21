@@ -1439,6 +1439,10 @@ function onPointerCancel(event) {
 
       if (match) {
         focusOnCountry(match);
+
+        if (isMobileBreakpoint()) {
+          countrySearchInput.blur();
+        }
       }
 
       countrySearchInput.blur();
