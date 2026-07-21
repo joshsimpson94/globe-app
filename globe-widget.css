@@ -108,7 +108,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   color: var(--wf-globe-text);
   font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
   font-size: 16px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.2;
   outline: none;
   -webkit-user-select: text;
@@ -186,6 +186,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   background: transparent;
   color: var(--wf-globe-text);
   font: inherit;
+  font-weight: 500;
   text-align: left;
   text-wrap: pretty;
   cursor: pointer;
@@ -355,11 +356,6 @@ html.wf-globe-widget--touch-gesture-active body * {
     --wf-globe-control-offset: 12px;
   }
 
-  .wf-globe-widget__input,
-  .wf-globe-widget__zoom-button::before {
-    font-weight: 500;
-  }
-
   .wf-globe-widget__search {
     width: calc(100% - var(--wf-globe-control-offset) - var(--wf-globe-control-offset) - 68px);
     max-width: none;
@@ -382,11 +378,6 @@ html.wf-globe-widget--touch-gesture-active body * {
   .wf-globe-widget {
     --wf-globe-padding: 12px;
     --wf-globe-control-offset: 12px;
-  }
-
-  .wf-globe-widget__input,
-  .wf-globe-widget__zoom-button::before {
-    font-weight: 500;
   }
 
   .wf-globe-widget__search {
