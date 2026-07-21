@@ -1,7 +1,7 @@
 .wf-globe-widget {
   --wf-globe-text: #eff9ff;
   --wf-globe-panel: rgba(5, 28, 54, 0.8);
-  --wf-globe-panel-border: #193d69;
+  --wf-globe-panel-border: rgba(25, 61, 105, 0.9);
   --wf-globe-panel-hover: #086490;
   --wf-globe-height: 100%;
   --wf-globe-control-offset: 16px;
