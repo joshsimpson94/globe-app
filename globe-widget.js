@@ -21,8 +21,11 @@
   const CLOSE_DETAIL_LOD_EXIT_ZOOM = 12.2;
   const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
-  const COUNTRY_HOVER_FILL = "#93E8B1";
+  const COUNTRY_FILL = "rgba(86, 184, 144, 0.9)";
+  const COUNTRY_HOVER_FILL = "#67C998";
   const COUNTRY_BORDER_STROKE = "rgba(147, 232, 177, 0.6)";
+  const SELECTED_COUNTRY_FILL = "#d9b96b";
+  const SELECTED_COUNTRY_STROKE = "rgba(244, 222, 165, 0.86)";
   const OVERVIEW_COUNTRY_BORDER_WIDTH = 0.75;
   const STANDARD_COUNTRY_BORDER_WIDTH = 1.25;
   const CLOSE_DETAIL_COUNTRY_BORDER_WIDTH = 1.5;
@@ -148,6 +151,13 @@
       console.error("Globe widget could not start because required elements are missing.", root);
       return;
     }
+
+    const starsCanvas = document.createElement("canvas");
+    starsCanvas.className = "wf-globe-widget__stars";
+    starsCanvas.setAttribute("aria-hidden", "true");
+    frame.insertBefore(starsCanvas, canvas);
+    const starsContext = starsCanvas.getContext("2d");
+    let starsDrawn = false;
 
     const globe = {
       yaw: -36,
@@ -469,9 +479,106 @@
       return true;
     }
 
+    function drawStars(width, height) {
+      if (!starsContext) {
+        return;
+      }
+
+      // Static sky: a modest resolution cap keeps the extra canvas small.
+      const starPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+      const starWidth = Math.round(width * starPixelRatio);
+      const starHeight = Math.round(height * starPixelRatio);
+
+      if (starsDrawn && starsCanvas.width === starWidth && starsCanvas.height === starHeight) {
+        return;
+      }
+
+      starsCanvas.width = starWidth;
+      starsCanvas.height = starHeight;
+      starsDrawn = true;
+      starsContext.setTransform(starPixelRatio, 0, 0, starPixelRatio, 0, 0);
+
+      let seed = 0x51a7c3e5;
+      const random = () => {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        return seed / 4294967296;
+      };
+      const clusters = [
+        [0.12, 0.24, 0.12],
+        [0.84, 0.22, 0.1],
+        [0.11, 0.75, 0.14],
+        [0.88, 0.74, 0.12],
+        [0.48, 0.08, 0.16],
+      ];
+      const starSizeScale = Math.max(0.55, Math.min(1, width / 900));
+
+      function paintStar(x, y, radius, opacity, isBlue, hasHalo) {
+        if (x < 0 || x > width || y < 0 || y > height) {
+          return;
+        }
+
+        const scaledRadius = radius * starSizeScale;
+        if (hasHalo) {
+          const halo = starsContext.createRadialGradient(x, y, 0, x, y, scaledRadius * 4);
+          halo.addColorStop(0, "rgba(170, 211, 255, 0.1)");
+          halo.addColorStop(1, "rgba(170, 211, 255, 0)");
+          starsContext.fillStyle = halo;
+          starsContext.beginPath();
+          starsContext.arc(x, y, scaledRadius * 4, 0, Math.PI * 2);
+          starsContext.fill();
+        }
+
+        starsContext.fillStyle = isBlue
+          ? `rgba(151, 199, 242, ${opacity})`
+          : `rgba(230, 239, 255, ${opacity})`;
+        starsContext.beginPath();
+        starsContext.arc(x, y, scaledRadius, 0, Math.PI * 2);
+        starsContext.fill();
+      }
+
+      const starCount = Math.min(600, Math.round(width * height / 3300));
+
+      for (let index = 0; index < starCount; index += 1) {
+        let x = random() * width;
+        let y = random() * height;
+
+        if (random() < 0.28) {
+          const cluster = clusters[Math.floor(random() * clusters.length)];
+          x = (cluster[0] + (random() + random() + random() - 1.5) * cluster[2]) * width;
+          y = (cluster[1] + (random() + random() + random() - 1.5) * cluster[2]) * height;
+        }
+
+        const brightness = random();
+        const isBright = brightness > 0.983;
+        const isMedium = brightness > 0.82;
+        paintStar(
+          x,
+          y,
+          isBright ? 1.4 + random() * 0.45 : isMedium ? 0.8 + random() * 0.35 : 0.42 + random() * 0.3,
+          isBright ? 0.68 + random() * 0.2 : isMedium ? 0.42 + random() * 0.22 : 0.2 + random() * 0.22,
+          random() < 0.42,
+          isBright,
+        );
+      }
+
+      // A few brighter, loosely recognizable groupings suggest constellations
+      // without drawing artificial connecting lines over the scene.
+      const asterisms = [
+        [[0.05, 0.34], [0.09, 0.29], [0.13, 0.26], [0.17, 0.24], [0.21, 0.27], [0.2, 0.34], [0.15, 0.35]],
+        [[0.81, 0.24], [0.92, 0.27], [0.86, 0.37], [0.88, 0.38], [0.9, 0.39], [0.83, 0.53], [0.94, 0.51]],
+      ];
+      asterisms.forEach((stars) => {
+        stars.forEach(([x, y], index) => {
+          paintStar(x * width, y * height, index % 4 === 0 ? 1.45 : 1.05, 0.58, index % 3 === 0, index % 4 === 0);
+        });
+      });
+    }
+
     function resizeCanvas() {
       const bounds = canvas.getBoundingClientRect();
       pixelRatio = window.devicePixelRatio || 1;
+
+      drawStars(bounds.width, bounds.height);
 
       canvas.width = Math.round(bounds.width * pixelRatio);
       canvas.height = Math.round(bounds.height * pixelRatio);
@@ -489,55 +596,60 @@
         .precision(0.6);
     }
 
-    function drawAtmosphere(renderContext) {
-      renderContext.beginPath();
-      renderContext.arc(globe.centerX, globe.centerY, globe.radius * 1.065, 0, Math.PI * 2);
-      renderContext.lineWidth = globe.radius * 0.09;
-      renderContext.strokeStyle = "rgba(58, 205, 255, 0.08)";
-      renderContext.stroke();
-    }
-
     function drawSphere(renderContext, renderPath) {
       const ocean = renderContext.createRadialGradient(
-        globe.centerX - globe.radius * 0.35,
-        globe.centerY - globe.radius * 0.42,
-        globe.radius * 0.12,
-        globe.centerX,
-        globe.centerY,
-        globe.radius * 1.08,
+        globe.centerX - globe.radius * 0.38,
+        globe.centerY - globe.radius * 0.4,
+        0,
+        globe.centerX + globe.radius * 0.12,
+        globe.centerY + globe.radius * 0.16,
+        globe.radius * 1.2,
       );
 
-      ocean.addColorStop(0, "#1c9eda");
-      ocean.addColorStop(0.24, "#137faf");
-      ocean.addColorStop(0.56, "#0b5d8d");
-      ocean.addColorStop(1, "#08253a");
+      // One upper-left light: a restrained blue focal highlight falls through
+      // rich midtones into ink navy. Avoid opposing gradients that flatten it.
+      ocean.addColorStop(0, "#163d68");
+      ocean.addColorStop(0.18, "#103255");
+      ocean.addColorStop(0.42, "#0b2b4d");
+      ocean.addColorStop(0.68, "#0a2747");
+      ocean.addColorStop(0.9, "#082039");
+      ocean.addColorStop(1, "#071a31");
 
       renderContext.beginPath();
       renderPath({ type: "Sphere" });
       renderContext.fillStyle = ocean;
       renderContext.fill();
 
+      // Gentle limb darkening adds curvature without washing out the light.
       const shading = renderContext.createRadialGradient(
-        globe.centerX + globe.radius * 0.42,
-        globe.centerY + globe.radius * 0.4,
-        globe.radius * 0.08,
+        globe.centerX,
+        globe.centerY,
+        globe.radius * 0.55,
         globe.centerX,
         globe.centerY,
         globe.radius,
       );
 
-      shading.addColorStop(0, "rgba(2, 9, 15, 0)");
-      shading.addColorStop(1, "rgba(2, 8, 14, 0.72)");
+      shading.addColorStop(0, "rgba(1, 8, 20, 0)");
+      shading.addColorStop(0.65, "rgba(1, 8, 20, 0.12)");
+      shading.addColorStop(1, "rgba(1, 8, 20, 0.38)");
 
       renderContext.beginPath();
       renderPath({ type: "Sphere" });
       renderContext.fillStyle = shading;
       renderContext.fill();
 
+      const rim = renderContext.createLinearGradient(
+        globe.centerX - globe.radius, globe.centerY - globe.radius,
+        globe.centerX + globe.radius, globe.centerY + globe.radius,
+      );
+      rim.addColorStop(0, "rgba(148, 207, 250, 0.36)");
+      rim.addColorStop(0.45, "rgba(87, 150, 216, 0.2)");
+      rim.addColorStop(1, "rgba(66, 120, 184, 0.15)");
       renderContext.beginPath();
       renderPath({ type: "Sphere" });
       renderContext.lineWidth = 1.4;
-      renderContext.strokeStyle = "rgba(191, 242, 255, 0.5)";
+      renderContext.strokeStyle = rim;
       renderContext.stroke();
     }
 
@@ -553,7 +665,6 @@
       const isZoomSettled = Math.abs(globe.zoom - globe.targetZoom) < 0.001;
 
       if (!isZoomSettled) {
-        drawAtmosphere(context);
         drawSphere(context, path);
         staticLayerKey = "";
         return;
@@ -570,7 +681,6 @@
         staticContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
         const staticPath = window.d3.geoPath(projection, staticContext);
 
-        drawAtmosphere(staticContext);
         drawSphere(staticContext, staticPath);
         staticLayerKey = nextStaticLayerKey;
       }
@@ -581,16 +691,29 @@
       context.restore();
     }
 
+    function drawGrid(strokeStyle) {
+      context.save();
+      context.globalCompositeOperation = "soft-light";
+      context.beginPath();
+      path(graticule);
+      context.lineWidth = 0.8;
+      context.strokeStyle = strokeStyle;
+      context.stroke();
+      context.restore();
+    }
+
     function drawWorld() {
       context.save();
       context.beginPath();
       path({ type: "Sphere" });
       context.clip();
 
+      drawGrid("rgba(161, 230, 250, 0.5)");
+
       const countriesOnFront = getVisibleCountries();
       const renderSource = getRenderGeometrySource();
 
-      context.fillStyle = "rgba(116, 222, 154, 0.86)";
+      context.fillStyle = COUNTRY_FILL;
 
       for (const country of countriesOnFront.features) {
         fillCountry(country);
@@ -603,28 +726,29 @@
         fillCountry(hoveredRenderFeature);
       }
 
+      context.save();
+      context.beginPath();
+      path(countriesOnFront);
+      context.clip("evenodd");
+      drawGrid("rgba(176, 205, 187, 0.35)");
+      context.restore();
+
       context.beginPath();
       path(visibleCountryBorderMesh);
       context.lineWidth = getCountryBorderWidth(renderSource);
       context.strokeStyle = COUNTRY_BORDER_STROKE;
       context.stroke();
 
-      context.beginPath();
-      path(graticule);
-      context.lineWidth = 0.85;
-      context.strokeStyle = "rgba(202, 242, 255, 0.18)";
-      context.stroke();
-
       if (selectedCountry) {
         const renderSource = getRenderGeometrySource();
         const selectedRenderFeature = renderSource.featureByName.get(selectedCountry.properties.name) || selectedCountry;
 
-        context.fillStyle = "#FFD166";
+        context.fillStyle = SELECTED_COUNTRY_FILL;
         fillCountry(selectedRenderFeature);
         context.beginPath();
         path(selectedRenderFeature);
         context.lineWidth = 1.6;
-        context.strokeStyle = "rgba(255, 246, 204, 0.9)";
+        context.strokeStyle = SELECTED_COUNTRY_STROKE;
         context.stroke();
       }
 
