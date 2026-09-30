@@ -10,6 +10,22 @@ This repository owns the standalone globe assets used by Josh Simpson's Vercel p
 - `countries-50m-close.json`: full-detail topology for close zoom.
 - `demo.html`: standalone preview.
 - `embed-snippet.html`: optional standalone embed markup.
+- `FEATHER-LICENSE.txt`: MIT license for the embedded Feather control and external-link icons.
+- `scripts/update-population.mjs`: refreshes the bundled population snapshot.
+
+## Icons
+
+Zoom and clear buttons use [Feather v4.29.2](https://github.com/feathericons/feather/tree/v4.29.2/icons) plus, minus, and x SVGs embedded as CSS data URLs. The existing button markup, accessible labels, click handlers, and hit areas stay intact, including in existing embeds. No icon font, extra asset request, or runtime library is required. The population link uses an inline SVG from the same icon set.
+
+## Population
+
+Search suggestions show country names only. Selecting a country by search or on the globe centers the country and displays its name above a quieter `Population 69.5M` line in the bottom label. There are no pins or side panels. UK aliases (including England, Scotland, Wales, and Northern Ireland) select the United Kingdom total.
+
+A separate **More info** link with Feather's external-link icon opens the country's World Bank population data in a new tab. It moves below the country and population when those details need the width. Clicking the country or population text leaves the selection intact; only the × button within the panel clears it. Screen readers receive the full population number and source. Values use compact English formatting with at most one decimal place (for example, `69.5M` or `9.5K`); the reporting year is stored internally but not shown. Areas without data show only the country name.
+
+Population data comes from the [World Bank World Development Indicators, SP.POP.TOTL](https://data.worldbank.org/indicator/SP.POP.TOTL), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It uses the latest available non-empty annual observation for each mapped country; it is not a live population count. The widget bundles the snapshot inside its JavaScript, so selection makes no data request and needs no API key or extra embed asset.
+
+Run `node scripts/update-population.mjs` with Node.js 20+ and network access during maintenance or release preparation. The script fetches all API pages, excludes aggregate regions, maps topology names to World Bank countries, and reports coverage gaps. It validates the responses before atomically replacing the generated snapshot; failed refreshes preserve the previous file. Review the generated diff and coverage report before releasing.
 
 ## Release to the Vercel portfolio
 

@@ -7,6 +7,11 @@
 - When preparing to push to GitHub, run the relevant checks once for the accumulated changes. Fix any failures and rerun the affected checks before pushing. Do not repeat passing checks after every small edit unless a new change or failure gives a concrete reason.
 - If a visual choice is open to interpretation, make a reasonable edit from the user's latest feedback and let them review it. Ask only when the missing detail prevents a sensible change.
 
+## Running the demo
+
+- When the user says “run the demo,” start a local static server from the repository root (for example, `python3 -m http.server 8000`) and give them the demo URL, `http://localhost:8000/demo.html`.
+- Do not open a browser or perform a visual review unless the user explicitly asks for one.
+
 ## Releasing to the portfolio
 
 - This repository owns the globe assets. The Vercel portfolio is a separate repository, `joshsimpson94/josh-simpson-portfolio-2026`, and pins an immutable Globe-App commit in `src/components/site/global-search-sample.tsx`. Pushing or merging here alone does not update the portfolio.
