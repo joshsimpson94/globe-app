@@ -1976,6 +1976,11 @@ function onPointerCancel(event) {
     zoomInButton.addEventListener("click", () => zoomBy(0.75));
     zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
     clearSelectionButton.addEventListener("click", clearSelectedCountry);
+    selectionPanel.addEventListener("click", (event) => {
+      if (!clearSelectionButton.hidden && !event.target.closest("a, button")) {
+        clearSelectedCountry();
+      }
+    });
     countrySearchClearButton.addEventListener("click", clearSearchInput);
     countrySearchForm.addEventListener("submit", onCountrySearch);
     countrySuggestions.addEventListener("pointerup", onSuggestionPointerUp);

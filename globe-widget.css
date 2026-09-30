@@ -333,6 +333,10 @@ html.wf-globe-widget--touch-gesture-active body * {
   transition: background-color 160ms ease, border-color 160ms ease;
 }
 
+.wf-globe-widget__hud:has(.wf-globe-widget__hud-clear:not([hidden])) {
+  cursor: pointer;
+}
+
 .wf-globe-widget__hud.has-population {
   grid-template-columns: minmax(0, 1fr) 32px;
 }
@@ -371,7 +375,8 @@ html.wf-globe-widget--touch-gesture-active body * {
 
 .wf-globe-widget__population-link {
   flex: none;
-  display: inline-grid;
+  /* Keep the source link ready for a later release. */
+  display: none;
   grid-auto-flow: column;
   grid-auto-columns: max-content;
   align-items: center;
