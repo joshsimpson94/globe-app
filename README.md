@@ -40,7 +40,7 @@ Zoom and clear buttons use [Feather v4.29.2](https://github.com/feathericons/fea
 
 ## Population
 
-Search suggestions show country names only. After the first tap unlocks the globe, clicking or tapping a country centres and fits it and displays its name above a quieter `Population 69.5M` line. Choosing a search result also selects it. Deselecting restores the zoom level from before the first selection, including after switching countries. There are no pins or side panels. UK aliases (including England, Scotland, Wales, and Northern Ireland) select the United Kingdom total.
+Search suggestions show country names only. Clicking or tapping a country centres and fits it and displays its name above a quieter `Population 69.5M` line. Choosing a search result also selects it. Deselecting restores the zoom level from before the first selection, including after switching countries. There are no pins or side panels. UK aliases (including England, Scotland, Wales, and Northern Ireland) select the United Kingdom total.
 
 The **More info** source link is temporarily hidden; its markup and World Bank destination remain in place for a later release. Clicking or tapping anywhere on the selected-country bar clears the selection, as does its × button. Screen readers receive the full population number. Values use compact English formatting with at most one decimal place (for example, `69.5M` or `9.5K`); the reporting year is stored internally but not shown. Areas without data show only the country name.
 
@@ -50,7 +50,7 @@ Run `node scripts/update-population.mjs` with Node.js 20+ and network access dur
 
 ## Interaction behaviour
 
-- Hovering anywhere in the widget shows “Tap to interact” until the first tap. A tap on the canvas unlocks globe drag, country hover and selection, pinch, and wheel zoom without selecting a country on that first tap. Search and zoom controls work on their first use and also unlock the globe. Until then, wheel input scrolls the page. Leaving the widget, pressing Escape, or leaving the window disables wheel zoom until the pointer returns to the canvas.
+- The first click, tap, drag, pinch, search, and zoom-control interaction work immediately on every device. Mouse hover highlights countries where a fine pointer is available. Wheel input zooms the globe while the pointer is over its canvas; leaving the widget, pressing Escape, or leaving the window disables wheel zoom until the pointer returns to the canvas.
 - Dragging starts after 2 CSS pixels with a mouse or 4 with touch and then follows the pointer directly. A flick slows down continuously with a soft speed limit; touching again stops it immediately. Automatic rotation blends back in without an idle pause.
 - Pinching follows finger separation directly and can continue into a drag with the remaining finger. Zoom buttons change the scale by a factor of 1.25; double taps use 1.5. Double-tap drag and wheel zoom ease toward their input targets; wheel zoom reverses immediately and limits outstanding movement to prevent runaway bursts.
 - Country focus and the return zoom both take 500 ms with a gentle start and finish, and can be interrupted by a new gesture. Reduced-motion interactions apply the destination immediately. Deselecting starts the return zoom and resumes automatic rotation immediately.
@@ -73,3 +73,13 @@ Report the Globe-App release SHA and the portfolio merge/deployment SHA separate
 The optional `embed-snippet.html` contains markup and a pinned CDN reference for a standalone embed. If you use it outside the portfolio, update its asset pin for that destination and publish the host page separately. It loads D3 and TopoJSON from jsDelivr.
 
 The widget is scoped under `.wf-globe-widget`, and the JavaScript initializes every `[data-globe-widget]` element. Set `--wf-globe-height` on the outer widget to control its height in a standalone host.
+
+### Host-controlled animation
+
+An iframe host can opt a widget into paused startup with `data-globe-activity="host"`.
+The widget draws its initial frame, then posts `{ type: "portfolio-sample-ready" }` to its parent.
+The parent sends `{ type: "portfolio-sample-activity", active: boolean }` to pause or resume.
+Only messages from the parent with a boolean activity value are accepted. Hosts must validate
+ready messages against their iframe's `contentWindow`. Pausing preserves selection, search and
+zoom, and resuming excludes paused time from camera transitions. Hidden documents pause too.
+Without the opt-in attribute, the standalone animation behaviour is unchanged.

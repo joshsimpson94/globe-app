@@ -24,7 +24,6 @@
   // UI timing is independent of camera travel and gesture recognition.
   const UI_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
   const UI_MOTION = {
-    hint: { enter: 220, exit: 140, offset: 3 },
     suggestions: { enter: 200, exit: 140, offset: -4 },
     clear: { enter: 160, exit: 140, offset: 0 },
     panel: { enter: 240, exit: 160, offset: 6 },
@@ -449,7 +448,7 @@
     countrySuggestions.id = `wf-globe-widget-suggestions-${++suggestionListCount}`;
     countrySearchInput.setAttribute("aria-controls", countrySuggestions.id);
 
-    // Widget-owned canvas and interaction hint.
+    // Widget-owned canvas layers.
     const starsCanvas = document.createElement("canvas");
     starsCanvas.className = "wf-globe-widget__stars";
     starsCanvas.setAttribute("aria-hidden", "true");
@@ -457,15 +456,7 @@
     const starsContext = starsCanvas.getContext("2d");
     let starsDrawn = false;
 
-    const interactionHint = document.createElement("span");
-    interactionHint.className = "wf-globe-widget__interaction-hint";
-    interactionHint.textContent = "Tap to interact";
-    interactionHint.hidden = true;
-    frame.appendChild(interactionHint);
-    // Activation and wheel state.
-    let hasActivatedGlobe = false;
-    let activationPointer = null;
-    canvas.classList.toggle("is-awaiting-interaction", true);
+    // Wheel state.
     let wheelZoomEnabled = false;
     let wheelDirection = 0;
     // Camera transitions, followed by the current camera position.
@@ -546,6 +537,10 @@
     // Animation clock and cached drawing layers.
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
+    const hostControlled = root.dataset.globeActivity === "host";
+    let hostActive = !hostControlled;
+    let animationFrame = null;
+    let pausedAt = null;
     let lastFrameTime = null;
     let pixelRatio = 1;
     let staticLayerCanvas = null;
@@ -1244,12 +1239,10 @@
     }
 
     function onZoomInClick() {
-      activateGlobe();
       zoomBy(1);
     }
 
     function onZoomOutClick() {
-      activateGlobe();
       zoomBy(-1);
     }
 
@@ -1426,6 +1419,11 @@
     }
 
     function render(timestamp) {
+      animationFrame = null;
+      if (hostControlled && (!hostActive || document.hidden)) {
+        pauseAnimation();
+        return;
+      }
       if (lastFrameTime === null) {
         lastFrameTime = timestamp || performance.now();
       }
@@ -1502,20 +1500,51 @@
       }
 
       drawFrame();
-      requestAnimationFrame(render);
+      animationFrame = requestAnimationFrame(render);
     }
 
     function startAnimation() {
-      if (isAnimationStarted) {
+      if (isAnimationStarted || (hostControlled && (!hostActive || document.hidden))) {
         return;
       }
 
+      if (pausedAt !== null) {
+        const now = performance.now();
+        for (const transition of [centerTransition, searchTravel, zoomReturn, releaseGlide]) {
+          if (transition) transition.startedAt += now - Math.max(pausedAt, transition.startedAt);
+        }
+        pausedAt = null;
+      }
       isAnimationStarted = true;
+      root.dataset.globeAnimation = "running";
       lastFrameTime = null;
-      requestAnimationFrame(render);
+      animationFrame = requestAnimationFrame(render);
+    }
+
+    function pauseAnimation() {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+      isAnimationStarted = false;
+      lastFrameTime = null;
+      if (pausedAt === null) pausedAt = performance.now();
+      root.dataset.globeAnimation = "paused";
+    }
+
+    function onHostActivity(event) {
+      if (!hostControlled || event.source !== window.parent) return;
+      const data = event.data;
+      if (!data || data.type !== "portfolio-sample-activity" || typeof data.active !== "boolean") return;
+      hostActive = data.active;
+      if (hostActive && !document.hidden) startAnimation();
+      else pauseAnimation();
     }
 
     function startWhenVisible() {
+      if (hostControlled) {
+        pauseAnimation();
+        window.parent.postMessage({ type: "portfolio-sample-ready" }, "*");
+        return;
+      }
       if (!("IntersectionObserver" in window)) {
         startAnimation();
         return;
@@ -1701,7 +1730,6 @@
 
     function onCountrySearch(event) {
       event.preventDefault();
-      activateGlobe();
       const match = findCountryByName(countrySearchInput.value);
 
       if (match) {
@@ -1712,7 +1740,6 @@
     }
 
     function onCountrySearchInput() {
-      activateGlobe();
       enableWheelZoom();
       interruptCamera();
       updateSearchClearButton();
@@ -1801,7 +1828,7 @@
       clearSelectedCountry();
     }
 
-    // -- Gestures: activation and wheel input --
+    // -- Gestures: wheel input --
 
     function isDesktopHoverEnabled() {
       return desktopHoverMediaQuery.matches;
@@ -1823,41 +1850,22 @@
       return 0;
     }
 
-    function activateGlobe() {
-      hasActivatedGlobe = true;
-      canvas.classList.toggle("is-awaiting-interaction", false);
-      enableWheelZoom();
-    }
-
     function enableWheelZoom() {
-      if (!hasActivatedGlobe) return;
       wheelZoomEnabled = true;
-      setUIVisible(interactionHint, false, UI_MOTION.hint);
     }
 
     function disableWheelZoom() {
       wheelZoomEnabled = false;
       wheelDirection = 0;
-      setUIVisible(interactionHint, false, UI_MOTION.hint);
-    }
-
-    function onAreaPointerEnter(event) {
-      if (!hasActivatedGlobe && event.pointerType !== "touch") {
-        setUIVisible(interactionHint, true, UI_MOTION.hint);
-      }
-    }
-
-    function onRootPointerDown(event) {
-      if (!hasActivatedGlobe && event.target !== canvas && event.button === 0) activateGlobe();
     }
 
     function onCanvasPointerEnter() {
-      if (hasActivatedGlobe) enableWheelZoom();
+      enableWheelZoom();
     }
 
     function onWheel(event) {
       if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
-      if (!hasActivatedGlobe || !wheelZoomEnabled) return;
+      if (!wheelZoomEnabled) return;
       if (!event.cancelable) return;
       event.preventDefault();
       clearPendingMobileCountryTap();
@@ -1977,7 +1985,7 @@
     }
 
     function onFrameTouchPointerDown(event) {
-      if (!hasActivatedGlobe || event.pointerType !== "touch") {
+      if (event.pointerType !== "touch") {
         return;
       }
 
@@ -2259,21 +2267,6 @@
     function onPointerDown(event) {
       if (event.button !== 0) return;
       if (event.pointerType === "touch") event.preventDefault();
-      if (!hasActivatedGlobe) {
-        if (activationPointer) {
-          activationPointer.cancelled = true;
-          return;
-        }
-        activationPointer = {
-          id: event.pointerId,
-          x: event.clientX,
-          y: event.clientY,
-          threshold: event.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD,
-          cancelled: false,
-        };
-        canvas.setPointerCapture(event.pointerId);
-        return;
-      }
       enableWheelZoom();
       interruptCamera(true);
       wheelDirection = 0;
@@ -2299,11 +2292,10 @@
     }
 
     function onPointerMove(event) {
-      if (!hasActivatedGlobe) return;
-      if (updateMobileDoubleTapGesture(event)) return;
       if (event.pointerType === "mouse" && !pointer.dragging && isDesktopHoverEnabled()) {
         updateHoveredCountry(event.clientX, event.clientY);
       }
+      if (updateMobileDoubleTapGesture(event)) return;
       if (!pointer.activePointers.has(event.pointerId)) return;
       storeActivePointer(event);
 
@@ -2344,15 +2336,6 @@
     }
 
     function finishPointer(event, cancelled = false) {
-      if (!hasActivatedGlobe) {
-        if (!activationPointer || activationPointer.id !== event.pointerId) return;
-        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-        const distance = Math.hypot(event.clientX - activationPointer.x, event.clientY - activationPointer.y);
-        const isFirstTap = !cancelled && !activationPointer.cancelled && distance <= activationPointer.threshold;
-        activationPointer = null;
-        if (isFirstTap) activateGlobe();
-        return;
-      }
       if (endMobileDoubleTapGesture(event, cancelled)) return;
       if (!pointer.activePointers.has(event.pointerId)) return;
       const wasTap = !cancelled && pointer.dragging && !pointer.moved && pointer.activePointers.size === 1;
@@ -2390,10 +2373,6 @@
 
     function onWindowBlur() {
       disableWheelZoom();
-      if (activationPointer && canvas.hasPointerCapture(activationPointer.id)) {
-        canvas.releasePointerCapture(activationPointer.id);
-      }
-      activationPointer = null;
       clearPendingMobileCountryTap();
       cancelMobileDoubleTapGesture();
       interruptCamera(true);
@@ -2415,6 +2394,7 @@
     // -- Event registration --
 
     function registerEventListeners() {
+      if (hostControlled) window.addEventListener("message", onHostActivity);
       window.addEventListener("resize", () => {
         resizeCanvas();
         updateSuggestionScrollState();
@@ -2425,11 +2405,11 @@
       });
       window.addEventListener("blur", onWindowBlur);
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden) onWindowBlur();
+        if (hostControlled) {
+          if (document.hidden) pauseAnimation();
+          else if (hostActive) startAnimation();
+        } else if (document.hidden) onWindowBlur();
       });
-      root.addEventListener("pointerenter", onAreaPointerEnter);
-      root.addEventListener("pointermove", onAreaPointerEnter);
-      root.addEventListener("pointerdown", onRootPointerDown, { capture: true });
       root.addEventListener("pointerleave", disableWheelZoom);
       frame.addEventListener("pointerdown", onFrameTouchPointerDown, { capture: true, passive: false });
       frame.addEventListener("pointermove", onFrameTouchPointerMove, { capture: true, passive: false });
@@ -2469,7 +2449,6 @@
       countrySuggestions.addEventListener("pointerup", onSuggestionPointerUp);
       countrySuggestions.addEventListener("click", onSuggestionClick);
       countrySearchInput.addEventListener("input", onCountrySearchInput);
-      countrySearchInput.addEventListener("focus", activateGlobe);
       countrySearchInput.addEventListener("change", onCountrySearch);
       countrySearchInput.addEventListener("keydown", onCountrySearchKeyDown);
       document.addEventListener("click", onDocumentClick);

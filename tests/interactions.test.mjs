@@ -8,10 +8,12 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../globe-widget.js', import.meta.url), 'utf8');
 const country = { properties: { name: 'Test country' }, center: [170, 20] };
 
-function harness({ reducedMotion = false, activated = true, startWidget = false, dependenciesAvailable = true, animations = false } = {}) {
+function harness({ reducedMotion = false, desktopHover = false, startWidget = false, dependenciesAvailable = true, animations = false, hostControlled = false } = {}) {
   let now = 1000;
   let timerId = 0;
   const timers = new Map();
+  const frames = new Map();
+  let frameId = 0;
   const listeners = [];
   const lifecycle = [];
   const animationLog = [];
@@ -82,14 +84,16 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     return { root, elements };
   }
   const { root, elements } = makeRoot();
+  if (hostControlled) root.dataset.globeActivity = "host";
   const motionQuery = {
     matches: reducedMotion,
     addEventListener(type, callback, options) { recordListener('motionQuery', type, callback, options); },
   };
   const window = {
     lifecycle, dependenciesAvailable,
+    parent: { postMessage() {} },
     addEventListener(type, callback, options) { recordListener('window', type, callback, options); },
-    matchMedia: (query) => query.includes('reduced-motion') ? motionQuery : { matches: false },
+    matchMedia: (query) => query.includes('reduced-motion') ? motionQuery : { matches: query.includes('hover: hover') && desktopHover },
     getComputedStyle(node) {
       return animationLog.findLast((animation) => animation.element === node && !animation.cancelled)?.current ||
         { opacity: '1', translate: '0px 0px' };
@@ -113,10 +117,10 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     drawFrame = () => { globe.radius = globe.baseRadius * globe.zoom; };
     getCountryAtPoint = () => window.hitCountry || null;
     window.widget = {
-      globe, pointer, frameTouchPointers, canvas, frame, interactionHint,
-      render, onPointerDown, onPointerMove, onPointerUp, onPointerCancel,
+      globe, pointer, frameTouchPointers, canvas, frame,
+      render, startAnimation, pauseAnimation, onHostActivity, onPointerDown, onPointerMove, onPointerUp, onPointerCancel,
       onFrameTouchPointerDown, onFrameTouchPointerMove, onFrameTouchPointerUp, onFrameTouchPointerCancel,
-      onAreaPointerEnter, onRootPointerDown, onCanvasPointerEnter, onPointerLeave,
+      onCanvasPointerEnter, onPointerLeave, onDocumentClick,
       enableWheelZoom, disableWheelZoom, onWheel, onWindowBlur, onDocumentKeyDown,
       onCountrySearchInput, onZoomInClick, onZoomOutClick,
       renderSuggestions, closeSuggestions, updateSearchClearButton, onCountrySearchKeyDown,
@@ -127,7 +131,6 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
       get pendingTap() { return pendingMobileCountryTap; },
       get doubleTap() { return mobileDoubleTapGesture; },
       get wheelEnabled() { return wheelZoomEnabled; },
-      get activated() { return hasActivatedGlobe; },
       get hovered() { return hoveredCountry; }
     };
     ${startWidget ? `
@@ -158,7 +161,7 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
   `;
   const instrumented = source.replace('    if (!initializeDependencies()) {', bridge + '\n    if (!initializeDependencies()) {')
     .replace('  if (document.readyState === "loading") {', '  window.createWidget = createGlobeWidget;\n  if (document.readyState === "loading") {');
-  vm.runInNewContext(instrumented, { window, document, performance: { now: () => now }, requestAnimationFrame() {}, console });
+  vm.runInNewContext(instrumented, { window, document, performance: { now: () => now }, requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; }, cancelAnimationFrame(id) { frames.delete(id); }, console });
   listeners.length = 0;
   lifecycle.length = 0;
   window.createWidget(root);
@@ -190,53 +193,14 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     advance(20); widget.onPointerMove(event(150, 120));
     advance(20); widget.onPointerMove(event(190, 140));
   }
-  if (activated) {
-    widget.onPointerDown(event());
-    widget.onPointerUp(event());
-    widget.disableWheelZoom();
-  }
-  return { widget, window, advance, event, wheel, drag, listeners, lifecycle, elements, panel, makeRoot,
-    animationLog, motionQuery };
+  return { widget, window, advance, event, wheel, drag, listeners, lifecycle, elements, panel, root, makeRoot,
+    animationLog, motionQuery, frames, document };
 }
 
 function view(widget) {
   const { yaw, pitch, zoom, targetZoom } = widget.globe;
   return { yaw, pitch, zoom, targetZoom };
 }
-
-test('hint motion survives repeated pointer movement and reverses from its current position', () => {
-  const { widget: w, animationLog, event } = harness({ animations: true, activated: false });
-  const hover = event(100, 100, { pointerType: 'mouse' });
-  w.onAreaPointerEnter(hover);
-  const opening = animationLog.at(-1);
-  assert.equal(opening.options.duration, 220);
-  w.onAreaPointerEnter(hover);
-  assert.equal(animationLog.length, 1);
-  opening.current = { opacity: '0.4', translate: '0px 1.8px' };
-  w.disableWheelZoom();
-  const closing = animationLog.at(-1);
-  assert.equal(opening.cancelled, true);
-  assert.equal(closing.keyframes[0].opacity, '0.4');
-  assert.equal(closing.keyframes[0].translate, '0px 1.8px');
-  assert.equal(w.interactionHint.hidden, false);
-  assert.equal(w.interactionHint.inert, true);
-  assert.equal(w.interactionHint.attributes['aria-hidden'], 'true');
-  closing.current = { opacity: '0.2', translate: '0px 2.4px' };
-  w.onAreaPointerEnter(hover);
-  const reopened = animationLog.at(-1);
-  assert.equal(reopened.keyframes[0].opacity, '0.2');
-  closing.finish();
-  opening.finish();
-  assert.equal(w.interactionHint.hidden, false);
-  assert.equal(w.interactionHint.inert, false);
-  reopened.finish();
-  w.onPointerDown(event());
-  w.onPointerUp(event());
-  assert.equal(w.activated, true);
-  assert.equal(w.selected, null);
-  animationLog.at(-1).finish();
-  assert.equal(w.interactionHint.hidden, true);
-});
 
 test('suggestions update without replaying entrances and close semantically before their exit ends', () => {
   const { widget: w, elements, animationLog } = harness({ animations: true });
@@ -402,7 +366,7 @@ test('changing reduced motion settles active exits and label updates immediately
 });
 
 test('startup checks dependencies, binds events, resets the UI, then draws before animation', () => {
-  const { lifecycle, listeners, elements, panel } = harness({ startWidget: true, activated: false });
+  const { lifecycle, listeners, elements, panel } = harness({ startWidget: true });
   assert.ok(listeners.length > 0);
   assert.deepEqual(lifecycle, [
     'dependencies',
@@ -417,7 +381,7 @@ test('startup checks dependencies, binds events, resets the UI, then draws befor
 });
 
 test('each widget connects its search input to its own suggestions', () => {
-  const { window, elements, makeRoot } = harness({ startWidget: true, activated: false });
+  const { window, elements, makeRoot } = harness({ startWidget: true });
   const firstInput = elements.get('[data-country-search-input]');
   const firstSuggestions = elements.get('[data-country-suggestions]');
   const { root: secondRoot, elements: secondElements } = makeRoot();
@@ -431,21 +395,18 @@ test('each widget connects its search input to its own suggestions', () => {
 });
 
 test('failed dependency setup does not bind events, draw, or start animation', () => {
-  const { lifecycle, listeners } = harness({ startWidget: true, activated: false, dependenciesAvailable: false });
+  const { lifecycle, listeners } = harness({ startWidget: true, dependenciesAvailable: false });
   assert.deepEqual(lifecycle, ['dependencies']);
   assert.deepEqual(listeners, []);
 });
 
 test('event wiring preserves gesture capture order, cancellable wheel input, and zoom controls', () => {
-  const { widget: w, listeners, event } = harness({ startWidget: true, activated: false });
+  const { widget: w, listeners, event } = harness({ startWidget: true });
   function listener(target, type) {
     const matches = listeners.filter((entry) => entry.target === target && entry.type === type);
     assert.equal(matches.length, 1, `${target} ${type} should be bound once`);
     return matches[0];
   }
-  const rootDown = listener('root', 'pointerdown');
-  assert.equal(rootDown.callback, w.onRootPointerDown);
-  assert.equal(rootDown.options.capture, true);
   for (const [type, frameHandler, canvasHandler] of [
     ['pointerdown', w.onFrameTouchPointerDown, w.onPointerDown],
     ['pointermove', w.onFrameTouchPointerMove, w.onPointerMove],
@@ -459,7 +420,6 @@ test('event wiring preserves gesture capture order, cancellable wheel input, and
     assert.equal(frame.options.passive, false);
     assert.equal(canvas.callback, canvasHandler);
     assert.equal(canvas.options, undefined);
-    assert.ok(listeners.indexOf(rootDown) < listeners.indexOf(frame));
     assert.ok(listeners.indexOf(frame) < listeners.indexOf(canvas));
   }
   for (const type of ['touchstart', 'touchmove']) {
@@ -471,24 +431,25 @@ test('event wiring preserves gesture capture order, cancellable wheel input, and
   const wheel = listener('[data-globe-canvas]', 'wheel');
   assert.equal(wheel.callback, w.onWheel);
   assert.equal(wheel.options.passive, false);
-  const beforeActivation = event(0, 0, { deltaY: -20, deltaMode: 0 });
-  wheel.callback(beforeActivation);
-  assert.equal(beforeActivation.prevented, false);
+  const beforeEntry = event(0, 0, { deltaY: -20, deltaMode: 0 });
+  wheel.callback(beforeEntry);
+  assert.equal(beforeEntry.prevented, false);
+
+  listener('[data-globe-canvas]', 'pointerenter').callback();
+  const afterEntry = event(0, 0, { deltaY: -20, deltaMode: 0 });
+  wheel.callback(afterEntry);
+  assert.equal(afterEntry.prevented, true);
 
   const initialZoom = w.globe.targetZoom;
   listener('[data-zoom-in]', 'click').callback();
-  assert.equal(w.activated, true);
   assert.equal(w.globe.targetZoom, initialZoom * 1.25);
-  const afterActivation = event(0, 0, { deltaY: -20, deltaMode: 0 });
-  wheel.callback(afterActivation);
-  assert.equal(afterActivation.prevented, true);
   const zoomBeforeOut = w.globe.targetZoom;
   listener('[data-zoom-out]', 'click').callback();
   assert.equal(w.globe.targetZoom, zoomBeforeOut / 1.25);
 });
 
 test('registered resize and blur callbacks retain their startup behaviour', () => {
-  const { widget: w, listeners, lifecycle } = harness({ startWidget: true, activated: false });
+  const { widget: w, listeners, lifecycle } = harness({ startWidget: true });
   lifecycle.length = 0;
   listeners.find(({ target, type }) => target === 'window' && type === 'resize').callback();
   assert.deepEqual(lifecycle, ['resize', 'draw']);
@@ -701,77 +662,52 @@ test('holding still, cancellation, and touching again suppress the release glide
   }
 });
 
-test('hover prompts for a first tap without enabling country hover, drag, pinch, or wheel', () => {
-  const { widget: w, window, event, wheel } = harness({ activated: false });
+test('mouse hover highlights countries and the first click selects one', () => {
+  const { widget: w, window, event, advance } = harness({ desktopHover: true });
   window.hitCountry = country;
-  w.onAreaPointerEnter(event(100, 100, { pointerType: 'mouse' }));
-  assert.equal(w.interactionHint.hidden, false);
   w.onPointerMove(event(100, 100, { pointerType: 'mouse' }));
-  assert.equal(w.hovered, null);
-  assert.equal(wheel(-100).prevented, false);
-  assert.equal(w.globe.targetZoom, 1.05);
-  w.onFrameTouchPointerDown(event());
-  w.onFrameTouchPointerDown(event(200, 100, { pointerId: 2 }));
-  assert.equal(w.frameTouchPointers.size, 0);
-  const yaw = w.globe.yaw;
-  w.onPointerDown(event());
-  w.onPointerMove(event(150, 100));
-  w.onPointerUp(event(150, 100));
-  assert.equal(w.activated, false);
-  assert.equal(w.globe.yaw, yaw);
-});
-
-test('the first canvas tap unlocks interactions without selecting its country', () => {
-  const { widget: w, window, event, advance } = harness({ activated: false });
-  window.hitCountry = country;
-  w.onAreaPointerEnter(event(100, 100, { pointerType: 'mouse' }));
-  w.onPointerDown(event());
-  w.onPointerUp(event());
-  assert.equal(w.activated, true);
-  assert.equal(w.selected, null);
-  assert.equal(w.interactionHint.hidden, true);
-  w.onPointerDown(event());
-  w.onPointerUp(event());
+  assert.equal(w.hovered, country);
+  w.onPointerDown(event(100, 100, { pointerType: 'mouse' }));
+  w.onPointerUp(event(100, 100, { pointerType: 'mouse' }));
   advance(151);
   assert.equal(w.selected, country);
 });
 
-test('a first tap anywhere else in the widget unlocks globe controls', () => {
-  const { widget: w, event, wheel } = harness({ activated: false });
-  w.onAreaPointerEnter(event(0, 0, { pointerType: 'mouse' }));
-  assert.equal(w.interactionHint.hidden, false);
-  w.onRootPointerDown(event(0, 0, { target: w.frame }));
-  assert.equal(w.activated, true);
-  assert.equal(w.interactionHint.hidden, true);
-  assert.equal(wheel(-100).prevented, true);
+test('the first touch tap selects a country and the first drag rotates the globe', () => {
+  const { widget: w, window, event, advance, drag } = harness();
+  window.hitCountry = country;
+  w.onPointerDown(event());
+  w.onPointerUp(event());
+  advance(151);
+  assert.equal(w.selected, country);
+  w.onWindowBlur();
+  const yaw = w.globe.yaw;
+  drag();
+  assert.notEqual(w.globe.yaw, yaw);
+  w.onPointerUp(event(190, 140));
 });
 
-test('search and zoom buttons unlock the globe while performing their first action', () => {
+test('search and zoom buttons perform their first action immediately', () => {
   for (const action of ['search', 'zoom-in', 'zoom-out']) {
-    const { widget: w, event } = harness({ activated: false });
-    w.onAreaPointerEnter(event(100, 100, { pointerType: 'mouse' }));
+    const { widget: w } = harness();
     if (action === 'search') w.onCountrySearchInput();
     if (action === 'zoom-in') w.onZoomInClick();
     if (action === 'zoom-out') w.onZoomOutClick();
-    assert.equal(w.activated, true);
-    assert.equal(w.interactionHint.hidden, true);
     if (action === 'zoom-in') assert.ok(w.globe.targetZoom > 1.05);
     if (action === 'zoom-out') assert.ok(w.globe.targetZoom < 1.05);
   }
 });
 
-test('inactive wheel input passes through; activation, exit, Escape, and blur control wheel zoom', () => {
+test('canvas entry, exit, Escape, and blur control wheel zoom', () => {
   const { widget: w, wheel } = harness();
   assert.equal(wheel(-100).prevented, false);
   assert.equal(w.globe.targetZoom, 1.05);
-  assert.equal(w.interactionHint.hidden, true);
-  w.enableWheelZoom();
-  assert.equal(w.interactionHint.hidden, true);
+  w.onCanvasPointerEnter();
   assert.equal(wheel(-100).prevented, true);
   assert.ok(w.globe.targetZoom > 1.05);
   w.disableWheelZoom(); assert.equal(wheel(-100).prevented, false);
-  w.enableWheelZoom(); w.onDocumentKeyDown({ key: 'Escape' }); assert.equal(w.wheelEnabled, false);
-  w.enableWheelZoom(); w.onWindowBlur(); assert.equal(w.wheelEnabled, false);
+  w.onCanvasPointerEnter(); w.onDocumentKeyDown({ key: 'Escape' }); assert.equal(w.wheelEnabled, false);
+  w.onCanvasPointerEnter(); w.onWindowBlur(); assert.equal(w.wheelEnabled, false);
 });
 
 test('wheel magnitude and units agree; zero vertical input is ignored', () => {
@@ -878,4 +814,54 @@ test('reduced motion search applies the destination immediately', () => {
   assert.equal(w.globe.yaw, -170);
   assert.equal(w.globe.pitch, -20);
   assert.equal(w.globe.zoom, w.globe.targetZoom);
+});
+
+
+test('host-controlled animation validates messages, preserves state and owns one loop', () => {
+  const { widget: w, window, frames, document } = harness({ hostControlled: true });
+  const message = (data, source = window.parent) => w.onHostActivity({ source, data });
+  w.startAnimation();
+  assert.equal(frames.size, 0);
+  message({ type: 'portfolio-sample-activity', active: true }, {});
+  message({ type: 'portfolio-sample-activity', active: 'true' });
+  assert.equal(frames.size, 0);
+  message({ type: 'portfolio-sample-activity', active: true });
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 1);
+  w.selectCountry(country);
+  const before = view(w);
+  message({ type: 'portfolio-sample-activity', active: false });
+  assert.equal(frames.size, 0);
+  assert.deepEqual(view(w), before);
+  assert.equal(w.selected, country);
+  document.hidden = true;
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 0);
+  document.hidden = false;
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 1);
+});
+
+test('resuming a host-controlled globe excludes paused time from country travel', () => {
+  const { widget: w, window, advance } = harness({ hostControlled: true });
+  const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
+  active(true);
+  w.selectCountry(country);
+  advance(100, true);
+  const before = view(w);
+  active(false);
+  advance(60000);
+  active(true);
+  w.render(61100);
+  assert.deepEqual(view(w), before);
+  advance(100, true);
+  assert.notDeepEqual(view(w), before);
+});
+
+test('standalone globes ignore host activity messages', () => {
+  const { widget: w, window, frames } = harness();
+  w.startAnimation();
+  assert.equal(frames.size, 1);
+  w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: false } });
+  assert.equal(frames.size, 1);
 });
