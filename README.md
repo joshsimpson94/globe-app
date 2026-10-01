@@ -73,3 +73,13 @@ Report the Globe-App release SHA and the portfolio merge/deployment SHA separate
 The optional `embed-snippet.html` contains markup and a pinned CDN reference for a standalone embed. If you use it outside the portfolio, update its asset pin for that destination and publish the host page separately. It loads D3 and TopoJSON from jsDelivr.
 
 The widget is scoped under `.wf-globe-widget`, and the JavaScript initializes every `[data-globe-widget]` element. Set `--wf-globe-height` on the outer widget to control its height in a standalone host.
+
+### Host-controlled animation
+
+An iframe host can opt a widget into paused startup with `data-globe-activity="host"`.
+The widget draws its initial frame, then posts `{ type: "portfolio-sample-ready" }` to its parent.
+The parent sends `{ type: "portfolio-sample-activity", active: boolean }` to pause or resume.
+Only messages from the parent with a boolean activity value are accepted. Hosts must validate
+ready messages against their iframe's `contentWindow`. Pausing preserves selection, search and
+zoom, and resuming excludes paused time from camera transitions. Hidden documents pause too.
+Without the opt-in attribute, the standalone animation behaviour is unchanged.

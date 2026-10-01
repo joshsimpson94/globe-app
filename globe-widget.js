@@ -546,6 +546,10 @@
     // Animation clock and cached drawing layers.
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
+    const hostControlled = root.dataset.globeActivity === "host";
+    let hostActive = !hostControlled;
+    let animationFrame = null;
+    let pausedAt = null;
     let lastFrameTime = null;
     let pixelRatio = 1;
     let staticLayerCanvas = null;
@@ -1426,6 +1430,11 @@
     }
 
     function render(timestamp) {
+      animationFrame = null;
+      if (hostControlled && (!hostActive || document.hidden)) {
+        pauseAnimation();
+        return;
+      }
       if (lastFrameTime === null) {
         lastFrameTime = timestamp || performance.now();
       }
@@ -1502,20 +1511,51 @@
       }
 
       drawFrame();
-      requestAnimationFrame(render);
+      animationFrame = requestAnimationFrame(render);
     }
 
     function startAnimation() {
-      if (isAnimationStarted) {
+      if (isAnimationStarted || (hostControlled && (!hostActive || document.hidden))) {
         return;
       }
 
+      if (pausedAt !== null) {
+        const now = performance.now();
+        for (const transition of [centerTransition, searchTravel, zoomReturn, releaseGlide]) {
+          if (transition) transition.startedAt += now - Math.max(pausedAt, transition.startedAt);
+        }
+        pausedAt = null;
+      }
       isAnimationStarted = true;
+      root.dataset.globeAnimation = "running";
       lastFrameTime = null;
-      requestAnimationFrame(render);
+      animationFrame = requestAnimationFrame(render);
+    }
+
+    function pauseAnimation() {
+      if (animationFrame !== null) cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+      isAnimationStarted = false;
+      lastFrameTime = null;
+      if (pausedAt === null) pausedAt = performance.now();
+      root.dataset.globeAnimation = "paused";
+    }
+
+    function onHostActivity(event) {
+      if (!hostControlled || event.source !== window.parent) return;
+      const data = event.data;
+      if (!data || data.type !== "portfolio-sample-activity" || typeof data.active !== "boolean") return;
+      hostActive = data.active;
+      if (hostActive && !document.hidden) startAnimation();
+      else pauseAnimation();
     }
 
     function startWhenVisible() {
+      if (hostControlled) {
+        pauseAnimation();
+        window.parent.postMessage({ type: "portfolio-sample-ready" }, "*");
+        return;
+      }
       if (!("IntersectionObserver" in window)) {
         startAnimation();
         return;
@@ -2415,6 +2455,7 @@
     // -- Event registration --
 
     function registerEventListeners() {
+      if (hostControlled) window.addEventListener("message", onHostActivity);
       window.addEventListener("resize", () => {
         resizeCanvas();
         updateSuggestionScrollState();
@@ -2425,7 +2466,10 @@
       });
       window.addEventListener("blur", onWindowBlur);
       document.addEventListener("visibilitychange", () => {
-        if (document.hidden) onWindowBlur();
+        if (hostControlled) {
+          if (document.hidden) pauseAnimation();
+          else if (hostActive) startAnimation();
+        } else if (document.hidden) onWindowBlur();
       });
       root.addEventListener("pointerenter", onAreaPointerEnter);
       root.addEventListener("pointermove", onAreaPointerEnter);
