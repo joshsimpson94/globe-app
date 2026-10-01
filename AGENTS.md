@@ -7,6 +7,13 @@
 - When preparing to push to GitHub, run the relevant checks once for the accumulated changes. Fix any failures and rerun the affected checks before pushing. Do not repeat passing checks after every small edit unless a new change or failure gives a concrete reason.
 - If a visual choice is open to interpretation, make a reasonable edit from the user's latest feedback and let them review it. Ask only when the missing detail prevents a sensible change.
 
+## Code organization
+
+- Use the [README maintenance map](README.md#maintenance-map) to find the section responsible for a change. Keep related helpers and handlers together, and preserve the JavaScript section order.
+- The root JavaScript and CSS are the editable, published assets; keep the no-build workflow. Keep per-widget state in its closure and event registration in `registerEventListeners`, preserving listener order and options.
+- Preserve the embed contract: published filenames, topology globals, public initializer, DOM hooks, CSS classes, and custom properties. Keep generated population markers intact and CSS rule order unchanged during organizational edits.
+- For structural JavaScript changes, run `node --test tests/*.test.mjs` and `node --check globe-widget.js`. Keep test instrumentation in memory, outside the shipped runtime.
+
 ## Running the demo
 
 - When the user says “run the demo,” start a local static server from the repository root (for example, `python3 -m http.server 8000`) and give them the demo URL, `http://localhost:8000/demo.html`.

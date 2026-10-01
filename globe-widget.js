@@ -1,40 +1,71 @@
 (function () {
-  const DRAG_THRESHOLD = 6;
+  let suggestionListCount = 0;
+
+  // -- Configuration --
+  // Drag, glide, and zoom input.
+  const DRAG_THRESHOLD = 2;
+  const TOUCH_DRAG_THRESHOLD = 4;
+  const RELEASE_SAMPLE_DURATION = 80;
+  const GLIDE_DECAY_TIME = 240;
+  const MAX_RELEASE_SPEED = 1.2;
+  const GLIDE_STOP_SPEED = 0.008;
+  const COUNTRY_TRAVEL_DURATION = 500;
+  const ZOOM_STEP = 1.25;
+  const DOUBLE_TAP_ZOOM_STEP = 1.5;
+  const WHEEL_ZOOM_SENSITIVITY = 0.002;
+  const MAX_WHEEL_ZOOM_LEAD = 2;
+  // Tap recognition and search limits.
   const MOBILE_DOUBLE_TAP_DELAY = 150;
   const DESKTOP_DOUBLE_CLICK_DELAY = 150;
   const MOBILE_DOUBLE_TAP_MAX_DISTANCE = 32;
   const MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE = 200;
   const MAX_SUGGESTIONS = 5;
+  const SUGGESTION_CHANGE_DURATION = 180;
+  // UI timing is independent of camera travel and gesture recognition.
+  const UI_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+  const UI_MOTION = {
+    hint: { enter: 220, exit: 140, offset: 3 },
+    suggestions: { enter: 200, exit: 140, offset: -4 },
+    clear: { enter: 160, exit: 140, offset: 0 },
+    panel: { enter: 240, exit: 160, offset: 6 },
+  };
+  // Rotation and country focus.
   const AUTO_ROTATION_SPEED = 0.1;
   const SELECTED_COUNTRY_ROTATION_SPEED = 0.015;
+  const SELECTED_COUNTRY_ROTATION_MULTIPLIER = 1 / 3;
   const CLOSE_ZOOM_ROTATION_SPEED = 0.003;
-  const SELECTED_COUNTRY_ROTATION_EASE = 0.14;
   const DEFAULT_SELECTED_COUNTRY_ZOOM = 8;
   const SMALL_COUNTRY_FIT_ZOOM_THRESHOLD = 50;
   // About 4,000 km²: tiny countries and island groups should be legible even
   // when their islands are geographically dispersed.
   const SMALL_COUNTRY_MAX_ZOOM_AREA = 0.0001;
   const AUTO_ROTATION_ZOOM_REFERENCE = 5;
+  // Geometry detail thresholds and selection fit.
   const OVERVIEW_LOD_ENTER_ZOOM = 3.9;
   const OVERVIEW_LOD_EXIT_ZOOM = 4;
   const CLOSE_DETAIL_LOD_ENTER_ZOOM = 12;
   const CLOSE_DETAIL_LOD_EXIT_ZOOM = 12.2;
   const SELECTED_COUNTRY_FIT_WIDTH = 0.82;
   const SELECTED_COUNTRY_FIT_HEIGHT = 0.66;
+  // Canvas colours and borders (DOM colours live in the CSS tokens).
   const COUNTRY_FILL = "rgba(60, 185, 165, 0.9)";
   const COUNTRY_HOVER_FILL = "#60d4b7";
   const COUNTRY_BORDER_STROKE = "rgba(143, 231, 207, 0.6)";
+  const ZOOMED_OUT_BORDER_OPACITY = 0.45;
+  const FULL_BORDER_OPACITY_ZOOM = 4;
   const SELECTED_COUNTRY_FILL = "#d9b96b";
   const SELECTED_COUNTRY_STROKE = "rgba(244, 222, 165, 0.86)";
   const OVERVIEW_COUNTRY_BORDER_WIDTH = 0.75;
   const STANDARD_COUNTRY_BORDER_WIDTH = 1.25;
   const CLOSE_DETAIL_COUNTRY_BORDER_WIDTH = 1.5;
+  // Intro motion and frame timing.
   const INITIAL_PITCH_VELOCITY = -0.075;
   const INTRO_MIN_PITCH = -25;
   const INTRO_PITCH_EASE_DISTANCE = 6;
   const INTRO_PITCH_STOP_SPEED = 0.002;
   const FRAME_DURATION = 1000 / 60;
   const MAX_FRAME_SCALE = 3;
+  // Population label formatting and icon.
   // Use uppercase K/M/B abbreviations; en-GB uses lowercase m/b.
   const populationFormatter = new Intl.NumberFormat("en-US", {
     notation: "compact", maximumFractionDigits: 1,
@@ -44,14 +75,7 @@
   // See FEATHER-LICENSE.txt. Inlined to avoid a library or network dependency.
   const EXTERNAL_LINK_ICON = '<svg class="wf-globe-widget__external-link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
 
-  function escapeHtml(text) {
-    return text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
+  // -- Country data --
 
   const COUNTRY_DISPLAY_NAMES = {
     "Antigua and Barb.": "Antigua and Barbuda",
@@ -319,6 +343,17 @@
   };
   // END GENERATED POPULATIONS
 
+  // -- Shared helpers --
+
+  function escapeHtml(text) {
+    return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function normalizeSearch(value) {
     return value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }
@@ -345,6 +380,27 @@
     return 1 - Math.pow(1 - amount, frameScale);
   }
 
+  function createGridGeometry() {
+    const step = 0.5;
+    const grid = window.d3.geoGraticule().precision(step)();
+    // Graticule precision samples parallels only. Give meridians the same
+    // fixed spacing so neither kind of line needs adaptive subdivision.
+    grid.coordinates = grid.coordinates.map((line) => {
+      const first = line[0];
+      const last = line[line.length - 1];
+      if (first[0] !== last[0]) return line;
+      const latitudeSpan = last[1] - first[1];
+      const segments = Math.ceil(Math.abs(latitudeSpan) / step);
+      return Array.from({ length: segments + 1 }, (_, index) => [
+        first[0], first[1] + latitudeSpan * index / segments,
+      ]);
+    });
+    return grid;
+  }
+
+  // -- Widget elements and state --
+  // Each instance owns its state in this closure. Startup follows the function sections.
+
   function createGlobeWidget(root) {
     const frame = root.querySelector(".wf-globe-widget__frame");
     const canvas = root.querySelector("[data-globe-canvas]");
@@ -361,6 +417,7 @@
     const globeStatus = root.querySelector("[data-globe-status]");
     const desktopHoverMediaQuery = window.matchMedia("(hover: hover) and (pointer: fine) and (min-width: 561px)");
     const mobileBreakpointMediaQuery = window.matchMedia("(max-width: 560px)");
+    const reducedMotionMediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     const requiredElements = [
       frame,
@@ -383,17 +440,39 @@
       return;
     }
 
+    selectionPanel.hidden = true;
+
     // Also update hosts with older embed markup, including the portfolio iframe.
     countrySearchInput.placeholder = "Search countries";
     countrySearchInput.setAttribute("aria-label", "Search countries");
     countrySuggestions.setAttribute("aria-label", "Country suggestions");
+    countrySuggestions.id = `wf-globe-widget-suggestions-${++suggestionListCount}`;
+    countrySearchInput.setAttribute("aria-controls", countrySuggestions.id);
 
+    // Widget-owned canvas and interaction hint.
     const starsCanvas = document.createElement("canvas");
     starsCanvas.className = "wf-globe-widget__stars";
     starsCanvas.setAttribute("aria-hidden", "true");
     frame.insertBefore(starsCanvas, canvas);
     const starsContext = starsCanvas.getContext("2d");
     let starsDrawn = false;
+
+    const interactionHint = document.createElement("span");
+    interactionHint.className = "wf-globe-widget__interaction-hint";
+    interactionHint.textContent = "Tap to interact";
+    interactionHint.hidden = true;
+    frame.appendChild(interactionHint);
+    // Activation and wheel state.
+    let hasActivatedGlobe = false;
+    let activationPointer = null;
+    canvas.classList.toggle("is-awaiting-interaction", true);
+    let wheelZoomEnabled = false;
+    let wheelDirection = 0;
+    // Camera transitions, followed by the current camera position.
+    let releaseGlide = null;
+    let searchTravel = null;
+    let zoomReturn = null;
+    let centerTransition = null;
 
     const globe = {
       yaw: -36,
@@ -408,8 +487,11 @@
       radius: 0,
       centerX: 0,
       centerY: 0,
+      centralCenterY: 0,
+      restingCenterY: 0,
     };
 
+    // Canvas pointers and frame-wide touch gestures.
     const pointer = {
       dragging: false,
       moved: false,
@@ -421,14 +503,20 @@
       pinching: false,
       pinchStartDistance: 0,
       pinchStartZoom: 0,
+      threshold: DRAG_THRESHOLD,
+      samples: [],
     };
     const frameTouchPointers = new Map();
     let isFramePinching = false;
     let suppressFrameClickUntil = 0;
 
+    // Projection and topology indexes, including optional detail tiers.
     let countries;
     let projection;
     let path;
+    let gridProjection;
+    let gridPath;
+    let gridCanvasPath;
     let graticule;
     let countryFeatures = [];
     let countryRenderBounds = [];
@@ -442,84 +530,88 @@
     let closeDetailCountryGeometryByName = new Map();
     let closeDetailCountryFeatureByName = new Map();
     let isCloseDetailGeometryActive = false;
+    // Visible geometry and the cached border mesh.
     const visibleCountries = { type: "FeatureCollection", features: [] };
     const visibleCountryGeometries = { type: "GeometryCollection", geometries: [] };
     let visibleCountryBorderMesh = null;
     let visibleCountryBorderKey = "";
+    // Selection, hover, and search results.
     let selectedCountry = null;
+    let zoomBeforeCountrySelection = null;
     let hasUserAdjustedZoomSinceCountrySelection = false;
     let hoveredCountry = null;
-    let zoomBeforeCountrySelection = null;
     let suggestionMatches = [];
+    let suggestionElements = new Map();
     let activeSuggestionIndex = -1;
+    // Animation clock and cached drawing layers.
     let isIntroPitchDriftActive = true;
     let isAnimationStarted = false;
     let lastFrameTime = null;
     let pixelRatio = 1;
     let staticLayerCanvas = null;
     let staticLayerKey = "";
+    // Deferred taps and double-tap gestures.
     let pendingMobileCountryTap = null;
     let mobileDoubleTapGesture = null;
+    // UI visibility targets and cancellable animations belong to this widget.
+    const uiVisibility = new WeakMap();
+    const uiAnimations = new Map();
 
-    function getAutoRotationSpeed(zoom = globe.zoom) {
-      const zoomProgress = clamp(
-        (zoom - globe.minZoom) / (AUTO_ROTATION_ZOOM_REFERENCE - globe.minZoom),
-        0,
-        1,
-      );
-      const standardZoomSpeed = AUTO_ROTATION_SPEED +
-        (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
+    // -- UI motion --
 
-      if (zoom <= AUTO_ROTATION_ZOOM_REFERENCE) {
-        return standardZoomSpeed;
+    function animateUI(element, from, to, duration, onFinish = () => {}) {
+      const previous = uiAnimations.get(element);
+      if (previous) {
+        const current = window.getComputedStyle(element);
+        from = Object.fromEntries(Object.keys(to).map((key) => [key, current[key]]));
+        uiAnimations.delete(element);
+        previous.animation.cancel();
       }
-
-      const closeZoomProgress = clamp(
-        (zoom - AUTO_ROTATION_ZOOM_REFERENCE) / (globe.maxZoom - AUTO_ROTATION_ZOOM_REFERENCE),
-        0,
-        1,
-      );
-      return SELECTED_COUNTRY_ROTATION_SPEED +
-        (CLOSE_ZOOM_ROTATION_SPEED - SELECTED_COUNTRY_ROTATION_SPEED) * closeZoomProgress;
+      if (reducedMotionMediaQuery.matches || typeof element.animate !== "function") {
+        onFinish();
+        return;
+      }
+      const animation = element.animate([from, to], { duration, easing: UI_EASING, fill: "both" });
+      const entry = { animation, finish() {
+        if (uiAnimations.get(element) !== entry) return;
+        uiAnimations.delete(element);
+        onFinish();
+        animation.cancel();
+      } };
+      uiAnimations.set(element, entry);
+      animation.onfinish = entry.finish;
     }
 
-    function setSearchExpanded(isExpanded) {
-      countrySearchInput.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    function setUIVisible(element, visible, motion, onHidden = () => {}) {
+      const wasVisible = uiVisibility.get(element) ?? !element.hidden;
+      uiVisibility.set(element, visible);
+      element.inert = !visible;
+      element.classList.toggle("is-ui-closing", !visible);
+      if (visible) element.removeAttribute("aria-hidden");
+      else element.setAttribute("aria-hidden", "true");
+      if (wasVisible === visible) {
+        if (!visible && !uiAnimations.has(element)) {
+          element.hidden = true;
+          onHidden();
+        }
+        return;
+      }
+      element.hidden = false;
+      const concealed = { opacity: "0", translate: `0px ${motion.offset}px` };
+      const revealed = { opacity: "1", translate: "0px 0px" };
+      animateUI(element, visible ? concealed : revealed, visible ? revealed : concealed,
+        visible ? motion.enter : motion.exit, () => {
+          element.hidden = !visible;
+          if (!visible) onHidden();
+        });
     }
 
-    function updateSearchClearButton() {
-      countrySearchClearButton.hidden = !countrySearchInput.value;
+    function onUIMotionPreferenceChange() {
+      if (!reducedMotionMediaQuery.matches) return;
+      for (const entry of Array.from(uiAnimations.values())) entry.finish();
     }
 
-    function clearActiveSuggestion() {
-      activeSuggestionIndex = -1;
-      countrySearchInput.removeAttribute("aria-activedescendant");
-    }
-
-    function closeSuggestions() {
-      countrySuggestions.hidden = true;
-      countrySuggestions.innerHTML = "";
-      suggestionMatches = [];
-      clearActiveSuggestion();
-      setSearchExpanded(false);
-    }
-
-    function updateCountryLabel(name, population = null) {
-      countryLabel.textContent = name || "Select a country";
-      clearSelectionButton.hidden = !name;
-      selectionPanel.classList.toggle("has-population", Boolean(population));
-      if (!population) return;
-
-      const sourceUrl = "https://data.worldbank.org/indicator/SP.POP.TOTL?locations=" + encodeURIComponent(population.code);
-      const accessiblePopulation = "Population " + fullPopulationFormatter.format(population.value);
-      const accessibleLink = "View population data for " + name + " on World Bank (opens in a new tab)";
-      countryLabel.innerHTML =
-        '<span class="wf-globe-widget__population-details">' +
-          '<span class="wf-globe-widget__population-country">' + escapeHtml(name) + '</span>' +
-          '<span class="wf-globe-widget__population-value"><span aria-hidden="true">Population ' + populationFormatter.format(population.value) + '</span><span class="wf-globe-widget__sr-only">' + escapeHtml(accessiblePopulation) + '</span></span>' +
-        '</span>' +
-        '<a class="wf-globe-widget__population-link" href="' + sourceUrl + '" target="_blank" rel="noopener noreferrer" aria-label="' + escapeHtml(accessibleLink) + '"><span class="wf-globe-widget__population-link-text">More info</span>' + EXTERNAL_LINK_ICON + '</a>';
-    }
+    // -- Geometry and rendering --
 
     function showGlobeStatus(message) {
       globeStatus.hidden = false;
@@ -527,7 +619,7 @@
       updateCountryLabel("Globe unavailable");
       countrySearchInput.disabled = true;
       countrySearchInput.placeholder = "Globe unavailable";
-      countrySearchClearButton.hidden = true;
+      setUIVisible(countrySearchClearButton, false, UI_MOTION.clear);
       zoomInButton.disabled = true;
       zoomOutButton.disabled = true;
       clearSelectionButton.hidden = true;
@@ -598,26 +690,6 @@
         };
     }
 
-    function isDesktopHoverEnabled() {
-      return desktopHoverMediaQuery.matches;
-    }
-
-    function isMobileBreakpoint() {
-      return mobileBreakpointMediaQuery.matches;
-    }
-
-    function getDoubleTapDelay(event) {
-      if (event.pointerType === "touch" && isMobileBreakpoint()) {
-        return MOBILE_DOUBLE_TAP_DELAY;
-      }
-
-      if (event.pointerType === "mouse" && !isMobileBreakpoint()) {
-        return DESKTOP_DOUBLE_CLICK_DELAY;
-      }
-
-      return 0;
-    }
-
     function getCountryBorderWidth(renderSource) {
       if (renderSource.key === "close-detail") {
         return CLOSE_DETAIL_COUNTRY_BORDER_WIDTH;
@@ -682,7 +754,11 @@
       countries = window.topojson.feature(window.WORLD_TOPOLOGY, window.WORLD_TOPOLOGY.objects.countries);
       projection = window.d3.geoOrthographic();
       path = window.d3.geoPath(projection, context);
-      graticule = window.d3.geoGraticule10();
+      // Adaptive resampling changes vertices during rotation, making thin grid
+      // strokes jump. Keep their sampled geometry fixed across frames.
+      gridProjection = window.d3.geoOrthographic().precision(0);
+      gridPath = window.d3.geoPath(gridProjection);
+      graticule = createGridGeometry();
       countryFeatures = countries.features
         .filter((feature) => feature && feature.properties && feature.properties.name)
         .sort((left, right) => left.properties.name.localeCompare(right.properties.name));
@@ -833,7 +909,11 @@
       staticLayerKey = "";
 
       globe.centerX = bounds.width / 2;
-      globe.centerY = bounds.height / 2;
+      globe.centralCenterY = bounds.height / 2;
+      // Leave a little more visual room for the search and zoom controls above.
+      globe.restingCenterY = globe.centralCenterY + 32;
+      globe.centerY = selectedCountry ? globe.centralCenterY : globe.restingCenterY;
+      centerTransition = null;
       globe.baseRadius = Math.min(bounds.width, bounds.height) * 0.34;
       globe.radius = globe.baseRadius * globe.zoom;
 
@@ -905,6 +985,7 @@
         canvas.width,
         canvas.height,
         Math.round(globe.radius * pixelRatio),
+        Math.round(globe.centerY * pixelRatio),
       ].join(":");
     }
 
@@ -941,11 +1022,9 @@
     function drawGrid(strokeStyle) {
       context.save();
       context.globalCompositeOperation = "soft-light";
-      context.beginPath();
-      path(graticule);
       context.lineWidth = 0.8;
       context.strokeStyle = strokeStyle;
-      context.stroke();
+      context.stroke(gridCanvasPath);
       context.restore();
     }
 
@@ -959,11 +1038,12 @@
 
       const countriesOnFront = getVisibleCountries();
       const renderSource = getRenderGeometrySource();
+      const landGridMask = { type: "GeometryCollection", geometries: [] };
 
       context.fillStyle = COUNTRY_FILL;
 
       for (const country of countriesOnFront.features) {
-        fillCountry(country);
+        fillCountry(country, landGridMask.geometries);
       }
 
       if (hoveredCountry && hoveredCountry !== selectedCountry && isDesktopHoverEnabled()) {
@@ -975,16 +1055,25 @@
 
       context.save();
       context.beginPath();
-      path(countriesOnFront);
+      // Reuse only geometry accepted by fillCountry. Near the horizon, a tiny
+      // country can project as the whole sphere; using that rejected shape here
+      // would briefly draw the brighter land grid across the ocean as well.
+      path(landGridMask);
       context.clip("evenodd");
       drawGrid("rgba(181, 211, 204, 0.35)");
       context.restore();
 
+      context.save();
       context.beginPath();
       path(visibleCountryBorderMesh);
       context.lineWidth = getCountryBorderWidth(renderSource);
       context.strokeStyle = COUNTRY_BORDER_STROKE;
+      context.globalAlpha = ZOOMED_OUT_BORDER_OPACITY +
+        (1 - ZOOMED_OUT_BORDER_OPACITY) * clamp(
+          (globe.zoom - globe.minZoom) / (FULL_BORDER_OPACITY_ZOOM - globe.minZoom), 0, 1,
+        );
       context.stroke();
+      context.restore();
 
       if (selectedCountry) {
         const renderSource = getRenderGeometrySource();
@@ -1028,29 +1117,32 @@
       return coveredSamples >= sampleOffsets.length - 1;
     }
 
-    function drawCountryPolygonParts(country) {
+    function drawCountryPolygonParts(country, acceptedGeometries) {
       if (country.geometry.type !== "MultiPolygon") {
         return;
       }
 
       country.geometry.coordinates.forEach((coordinates) => {
+        const polygon = { type: "Polygon", coordinates };
         context.beginPath();
-        path({ type: "Polygon", coordinates });
+        path(polygon);
 
         if (!isCountryPathCoveringGlobe()) {
           context.fill("evenodd");
+          if (acceptedGeometries) acceptedGeometries.push(polygon);
         }
       });
     }
 
-    function fillCountry(country) {
+    function fillCountry(country, acceptedGeometries) {
       context.beginPath();
       path(country);
 
       if (isCountryPathCoveringGlobe()) {
-        drawCountryPolygonParts(country);
+        drawCountryPolygonParts(country, acceptedGeometries);
       } else {
         context.fill();
+        if (acceptedGeometries) acceptedGeometries.push(country.geometry);
       }
     }
 
@@ -1066,10 +1158,271 @@
 
       projection.rotate([globe.yaw, globe.pitch]);
       projection.scale(globe.radius);
+      gridProjection
+        .rotate(projection.rotate())
+        .translate(projection.translate())
+        .scale(globe.radius);
+      // Both the ocean and land passes share one projected path per frame.
+      gridCanvasPath = new Path2D();
+      gridPath.context(gridCanvasPath)(graticule);
 
       clearCanvas();
       drawStaticLayers();
       drawWorld();
+    }
+
+    // -- Camera movement and selection --
+
+    function getAutoRotationSpeed(zoom = globe.zoom) {
+      const zoomProgress = clamp(
+        (zoom - globe.minZoom) / (AUTO_ROTATION_ZOOM_REFERENCE - globe.minZoom),
+        0,
+        1,
+      );
+      const standardZoomSpeed = AUTO_ROTATION_SPEED +
+        (SELECTED_COUNTRY_ROTATION_SPEED - AUTO_ROTATION_SPEED) * zoomProgress;
+
+      if (zoom <= AUTO_ROTATION_ZOOM_REFERENCE) {
+        return standardZoomSpeed;
+      }
+
+      const closeZoomProgress = clamp(
+        (zoom - AUTO_ROTATION_ZOOM_REFERENCE) / (globe.maxZoom - AUTO_ROTATION_ZOOM_REFERENCE),
+        0,
+        1,
+      );
+      return SELECTED_COUNTRY_ROTATION_SPEED +
+        (CLOSE_ZOOM_ROTATION_SPEED - SELECTED_COUNTRY_ROTATION_SPEED) * closeZoomProgress;
+    }
+
+    function interruptTravel(stopZoom = false) {
+      if (searchTravel || zoomReturn || stopZoom) globe.targetZoom = globe.zoom;
+      searchTravel = null;
+      zoomReturn = null;
+    }
+
+    function interruptCamera(stopZoom = false) {
+      interruptTravel(stopZoom);
+      releaseGlide = null;
+      globe.velocityX = 0;
+      globe.velocityY = 0;
+      isIntroPitchDriftActive = false;
+    }
+
+    function rotateByPixels(x, y) {
+      const degreesPerPixel = 180 / (Math.PI * Math.max(globe.baseRadius * globe.zoom, 1));
+      globe.yaw += x * degreesPerPixel;
+      globe.pitch = clamp(globe.pitch - y * degreesPerPixel, -90, 90);
+    }
+
+    function setTargetZoom(nextZoom) {
+      const nextTargetZoom = clamp(nextZoom, globe.minZoom, globe.maxZoom);
+      const hasChanged = nextTargetZoom !== globe.targetZoom;
+      globe.targetZoom = nextTargetZoom;
+      return hasChanged;
+    }
+
+    function setTargetZoomFromUser(nextZoom) {
+      interruptTravel();
+      if (setTargetZoom(nextZoom) && selectedCountry) {
+        hasUserAdjustedZoomSinceCountrySelection = true;
+      }
+    }
+
+    function setDirectUserZoom(nextZoom) {
+      setTargetZoomFromUser(nextZoom);
+      globe.zoom = globe.targetZoom;
+      globe.radius = globe.baseRadius * globe.zoom;
+    }
+
+    function zoomBy(delta, step = ZOOM_STEP) {
+      enableWheelZoom();
+      clearPendingMobileCountryTap();
+      interruptTravel();
+      wheelDirection = 0;
+      setTargetZoomFromUser(globe.targetZoom * (delta > 0 ? step : 1 / step));
+    }
+
+    function onZoomInClick() {
+      activateGlobe();
+      zoomBy(1);
+    }
+
+    function onZoomOutClick() {
+      activateGlobe();
+      zoomBy(-1);
+    }
+
+    function moveGlobeCenter(isCountrySelected) {
+      const targetY = isCountrySelected ? globe.centralCenterY : globe.restingCenterY;
+      if (reducedMotionMediaQuery.matches || globe.centerY === targetY) {
+        centerTransition = null;
+        globe.centerY = targetY;
+        projection.translate([globe.centerX, globe.centerY]);
+      } else {
+        centerTransition = { startedAt: performance.now(), from: globe.centerY, to: targetY };
+      }
+    }
+
+    function getCountryFitZoom(feature, rotation) {
+      if (feature.properties.name === "France" || feature.properties.name === "Netherlands") {
+        return DEFAULT_SELECTED_COUNTRY_ZOOM;
+      }
+
+      const countryArea = window.d3.geoArea(feature);
+      if (Number.isFinite(countryArea) && countryArea <= SMALL_COUNTRY_MAX_ZOOM_AREA) {
+        return globe.maxZoom;
+      }
+
+      const previousRotate = projection.rotate();
+      const previousScale = projection.scale();
+
+      projection.rotate(rotation);
+      projection.scale(globe.baseRadius);
+
+      const bounds = path.bounds(feature);
+
+      projection.rotate(previousRotate);
+      projection.scale(previousScale);
+
+      const width = bounds[1][0] - bounds[0][0];
+      const height = bounds[1][1] - bounds[0][1];
+
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return DEFAULT_SELECTED_COUNTRY_ZOOM;
+      }
+
+      const availableWidth = globe.centerX * 2 * SELECTED_COUNTRY_FIT_WIDTH;
+      const availableHeight = globe.centralCenterY * 2 * SELECTED_COUNTRY_FIT_HEIGHT;
+      const fitZoom = Math.min(availableWidth / width, availableHeight / height);
+
+      // Larger countries retain a fitting or standard 8× view.
+      if (fitZoom <= DEFAULT_SELECTED_COUNTRY_ZOOM) {
+        return clamp(fitZoom, globe.minZoom, DEFAULT_SELECTED_COUNTRY_ZOOM);
+      }
+
+      // Only genuinely small countries get the closer fitted view. This
+      // avoids treating countries such as Belgium or Switzerland as microstates.
+      if (fitZoom >= SMALL_COUNTRY_FIT_ZOOM_THRESHOLD) {
+        return clamp(fitZoom, DEFAULT_SELECTED_COUNTRY_ZOOM, globe.maxZoom);
+      }
+
+      return DEFAULT_SELECTED_COUNTRY_ZOOM;
+    }
+
+    function focusOnCountry(feature) {
+      enableWheelZoom();
+      clearPendingMobileCountryTap();
+      if (!selectedCountry) zoomBeforeCountrySelection = globe.zoom;
+      interruptCamera(true);
+      const center = getFocusCenter(feature);
+      const targetYaw = -center[0];
+      const targetPitch = clamp(-center[1], -90, 90);
+      const deltaYaw = ((targetYaw - globe.yaw) % 360 + 540) % 360 - 180;
+      setTargetZoom(getCountryFitZoom(feature, [targetYaw, targetPitch]));
+      moveGlobeCenter(true);
+      if (reducedMotionMediaQuery.matches) {
+        globe.yaw += deltaYaw;
+        globe.pitch = targetPitch;
+        globe.zoom = globe.targetZoom;
+      } else {
+        searchTravel = {
+          startedAt: performance.now(), yaw: globe.yaw, pitch: globe.pitch,
+          zoom: globe.zoom, deltaYaw, deltaPitch: targetPitch - globe.pitch,
+          targetZoom: globe.targetZoom,
+        };
+      }
+      showSelectedCountry(feature);
+      countrySearchInput.value = "";
+      updateSearchClearButton();
+      closeSuggestions();
+    }
+
+    function updateCountryLabel(name, population = null) {
+      if (!selectedCountry) {
+        setUIVisible(selectionPanel, false, UI_MOTION.panel, () => {
+          countryLabel.textContent = name || "";
+          clearSelectionButton.hidden = true;
+          selectionPanel.classList.remove("has-population");
+        });
+        return;
+      }
+      const wasVisible = uiVisibility.get(selectionPanel) ?? !selectionPanel.hidden;
+      countryLabel.textContent = name || "";
+      clearSelectionButton.hidden = !name;
+      selectionPanel.classList.toggle("has-population", Boolean(population));
+      if (population) {
+        const sourceUrl = "https://data.worldbank.org/indicator/SP.POP.TOTL?locations=" + encodeURIComponent(population.code);
+        const accessiblePopulation = "Population " + fullPopulationFormatter.format(population.value);
+        const accessibleLink = "View population data for " + name + " on World Bank (opens in a new tab)";
+        countryLabel.innerHTML =
+          '<span class="wf-globe-widget__population-details">' +
+            '<span class="wf-globe-widget__population-country">' + escapeHtml(name) + '</span>' +
+            '<span class="wf-globe-widget__population-value"><span aria-hidden="true">Population ' + populationFormatter.format(population.value) + '</span><span class="wf-globe-widget__sr-only">' + escapeHtml(accessiblePopulation) + '</span></span>' +
+          '</span>' +
+          '<a class="wf-globe-widget__population-link" href="' + sourceUrl + '" target="_blank" rel="noopener noreferrer" aria-label="' + escapeHtml(accessibleLink) + '"><span class="wf-globe-widget__population-link-text">More info</span>' + EXTERNAL_LINK_ICON + '</a>';
+      }
+      setUIVisible(selectionPanel, true, UI_MOTION.panel);
+      if (wasVisible) animateUI(countryLabel, { opacity: "0" }, { opacity: "1" }, 140);
+    }
+
+    function showSelectedCountry(feature) {
+      selectedCountry = feature;
+      hasUserAdjustedZoomSinceCountrySelection = false;
+      updateCountryLabel(getDisplayName(feature), COUNTRY_POPULATIONS[feature.properties.name]);
+    }
+
+    function clearSelectedCountry() {
+      clearPendingMobileCountryTap();
+      interruptTravel();
+      selectedCountry = null;
+      hasUserAdjustedZoomSinceCountrySelection = false;
+      moveGlobeCenter(false);
+      if (zoomBeforeCountrySelection !== null) {
+        setTargetZoom(zoomBeforeCountrySelection);
+        zoomBeforeCountrySelection = null;
+        if (reducedMotionMediaQuery.matches) {
+          globe.zoom = globe.targetZoom;
+        } else {
+          zoomReturn = { startedAt: performance.now(), zoom: globe.zoom, targetZoom: globe.targetZoom };
+        }
+      }
+      // Resume rotation immediately while returning to the previous scale.
+      globe.velocityX = getAutoRotationSpeed();
+      updateCountryLabel("");
+    }
+
+    function getCountryAtPoint(clientX, clientY) {
+      const bounds = canvas.getBoundingClientRect();
+      const point = [clientX - bounds.left, clientY - bounds.top];
+      const coordinates = projection.invert(point);
+
+      if (!coordinates) {
+        return null;
+      }
+
+      const { featureByName } = getRenderGeometrySource();
+      return countryFeatures.find((candidate) => window.d3.geoContains(
+        featureByName.get(candidate.properties.name) || candidate, coordinates,
+      )) || null;
+    }
+
+    function updateHoveredCountry(clientX, clientY) {
+      const match = getCountryAtPoint(clientX, clientY);
+      hoveredCountry = match === selectedCountry ? null : match;
+      canvas.classList.toggle("is-country-hovered", Boolean(hoveredCountry));
+    }
+
+    function selectCountry(feature) {
+      if (!feature || feature === selectedCountry) {
+        clearSelectedCountry();
+      } else {
+        focusOnCountry(feature);
+      }
+    }
+
+    function selectCountryAtPoint(clientX, clientY) {
+      selectCountry(getCountryAtPoint(clientX, clientY));
     }
 
     function render(timestamp) {
@@ -1081,9 +1434,42 @@
       const frameScale = clamp(elapsed / FRAME_DURATION, 0, MAX_FRAME_SCALE) || 1;
       lastFrameTime = timestamp || performance.now();
 
-      globe.zoom += (globe.targetZoom - globe.zoom) * getFrameLerpAmount(0.14, frameScale);
+      const now = timestamp || performance.now();
+      if (centerTransition) {
+        const progress = clamp((now - centerTransition.startedAt) / COUNTRY_TRAVEL_DURATION, 0, 1);
+        const eased = progress * progress * (3 - 2 * progress);
+        globe.centerY = centerTransition.from + (centerTransition.to - centerTransition.from) * eased;
+        projection.translate([globe.centerX, globe.centerY]);
+        if (progress === 1) centerTransition = null;
+      }
 
-      if (!pointer.dragging) {
+      if (searchTravel) {
+        const progress = clamp((now - searchTravel.startedAt) / COUNTRY_TRAVEL_DURATION, 0, 1);
+        const eased = progress * progress * (3 - 2 * progress);
+        globe.yaw = searchTravel.yaw + searchTravel.deltaYaw * eased;
+        globe.pitch = searchTravel.pitch + searchTravel.deltaPitch * eased;
+        globe.zoom = searchTravel.zoom * Math.pow(searchTravel.targetZoom / searchTravel.zoom, eased);
+        if (progress === 1) searchTravel = null;
+      } else if (zoomReturn) {
+        const progress = clamp((now - zoomReturn.startedAt) / COUNTRY_TRAVEL_DURATION, 0, 1);
+        const eased = progress * progress * (3 - 2 * progress);
+        globe.zoom = zoomReturn.zoom * Math.pow(zoomReturn.targetZoom / zoomReturn.zoom, eased);
+        if (progress === 1) zoomReturn = null;
+      } else {
+        // Ease ratios rather than absolute scale, so zoom feels consistent at
+        // every distance and closely follows continuous wheel input.
+        globe.zoom *= Math.pow(globe.targetZoom / globe.zoom, getFrameLerpAmount(0.18, frameScale));
+      }
+
+      if (releaseGlide) {
+        const decay = Math.exp(-Math.max(0, now - releaseGlide.startedAt) / GLIDE_DECAY_TIME);
+        const distance = GLIDE_DECAY_TIME * (releaseGlide.decay - decay);
+        rotateByPixels(releaseGlide.x * distance, releaseGlide.y * distance);
+        releaseGlide.decay = decay;
+        if (Math.hypot(releaseGlide.x, releaseGlide.y) * decay < GLIDE_STOP_SPEED) releaseGlide = null;
+      }
+
+      if (!pointer.dragging && !frameTouchPointers.size && !searchTravel) {
         globe.yaw += globe.velocityX * frameScale;
         const nextPitch = globe.pitch + globe.velocityY * frameScale;
 
@@ -1108,16 +1494,10 @@
 
         const useSelectedCountryRotation = selectedCountry && !hasUserAdjustedZoomSinceCountrySelection;
 
-        if (selectedCountry && hasUserAdjustedZoomSinceCountrySelection) {
-          // User-controlled zoom resumes the normal rotation curve immediately.
-          globe.velocityX = getAutoRotationSpeed();
-        } else {
-          const targetVelocityX = useSelectedCountryRotation
-            ? Math.min(SELECTED_COUNTRY_ROTATION_SPEED, getAutoRotationSpeed(globe.targetZoom))
-            : getAutoRotationSpeed();
-          const rotationEase = useSelectedCountryRotation ? SELECTED_COUNTRY_ROTATION_EASE : 0.02;
-          globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(rotationEase, frameScale);
-        }
+        const targetVelocityX = useSelectedCountryRotation
+          ? Math.min(SELECTED_COUNTRY_ROTATION_SPEED, getAutoRotationSpeed(globe.targetZoom)) * SELECTED_COUNTRY_ROTATION_MULTIPLIER
+          : getAutoRotationSpeed();
+        globe.velocityX += (targetVelocityX - globe.velocityX) * getFrameLerpAmount(0.06, frameScale);
         globe.velocityY *= Math.pow(0.996, frameScale);
       }
 
@@ -1153,9 +1533,382 @@
       observer.observe(root);
     }
 
+    // -- Search --
+
+    function setSearchExpanded(isExpanded) {
+      countrySearchInput.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    }
+
+    function updateSuggestionScrollState() {
+      countrySuggestions.classList.toggle("has-scrollbar",
+        !countrySuggestions.hidden && countrySuggestions.scrollHeight > countrySuggestions.clientHeight + 1);
+    }
+
+    function updateSearchClearButton() {
+      setUIVisible(countrySearchClearButton, Boolean(countrySearchInput.value), UI_MOTION.clear);
+    }
+
+    function clearActiveSuggestion() {
+      activeSuggestionIndex = -1;
+      countrySearchInput.removeAttribute("aria-activedescendant");
+    }
+
+    function closeSuggestions() {
+      suggestionMatches = [];
+      clearActiveSuggestion();
+      setSearchExpanded(false);
+      setUIVisible(countrySuggestions, false, UI_MOTION.suggestions, () => {
+        cancelSuggestionAnimations();
+        countrySuggestions.innerHTML = "";
+        suggestionElements.clear();
+      });
+    }
+
+    function cancelSuggestionAnimations() {
+      for (const button of suggestionElements.values()) {
+        const entry = uiAnimations.get(button);
+        if (!entry) continue;
+        uiAnimations.delete(button);
+        entry.animation.cancel();
+      }
+    }
+
+    function updateActiveSuggestion() {
+      const suggestionButtons = Array.from(countrySuggestions.querySelectorAll(".wf-globe-widget__suggestion"));
+
+      suggestionButtons.forEach((button, index) => {
+        const isActive = index === activeSuggestionIndex;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
+
+      if (activeSuggestionIndex >= 0 && suggestionButtons[activeSuggestionIndex]) {
+        countrySearchInput.setAttribute("aria-activedescendant", suggestionButtons[activeSuggestionIndex].id);
+      } else {
+        countrySearchInput.removeAttribute("aria-activedescendant");
+      }
+    }
+
+    function renderSuggestions(matches) {
+      const sameMatches = matches.length === suggestionMatches.length &&
+        matches.every((feature, index) => feature === suggestionMatches[index]);
+      const animateChanges = (uiVisibility.get(countrySuggestions) ?? !countrySuggestions.hidden) &&
+        !reducedMotionMediaQuery.matches && typeof countrySuggestions.animate === "function";
+      suggestionMatches = matches;
+      clearActiveSuggestion();
+
+      if (!matches.length) {
+        closeSuggestions();
+        return;
+      }
+      if (sameMatches) {
+        updateActiveSuggestion();
+        return;
+      }
+
+      // Keep matching rows alive so their hover states and position can ease
+      // across a result change. Snapshot before cancelling any in-flight motion.
+      const previousPositions = new Map();
+      if (animateChanges) {
+        for (const [name, button] of suggestionElements) {
+          previousPositions.set(name, {
+            top: button.getBoundingClientRect().top,
+            opacity: window.getComputedStyle(button).opacity,
+          });
+        }
+      }
+      cancelSuggestionAnimations();
+      const nextElements = new Map();
+      matches.forEach((feature, index) => {
+        const name = feature.properties.name;
+        const button = suggestionElements.get(name) || document.createElement("button");
+        button.className = "wf-globe-widget__suggestion";
+        button.id = `country-suggestion-${root.dataset.globeInstance}-${index}`;
+        button.dataset.index = String(index);
+        button.type = "button";
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", "false");
+        button.textContent = getDisplayName(feature);
+        nextElements.set(name, button);
+      });
+      setSearchExpanded(true);
+      countrySuggestions.replaceChildren(...nextElements.values());
+      suggestionElements = nextElements;
+      setUIVisible(countrySuggestions, true, UI_MOTION.suggestions);
+      updateSuggestionScrollState();
+      if (animateChanges) {
+        const movements = Array.from(nextElements, ([name, button]) => {
+          const previous = previousPositions.get(name);
+          return { button, opacity: previous?.opacity || "0", offset: previous
+            ? previous.top - button.getBoundingClientRect().top : 3 };
+        });
+        for (const { button, opacity, offset } of movements) {
+          if (offset === 0 && opacity === "1") continue;
+          animateUI(button, { opacity, translate: `0px ${offset}px` },
+            { opacity: "1", translate: "0px 0px" }, SUGGESTION_CHANGE_DURATION);
+        }
+      }
+    }
+
+    function getSuggestions(query) {
+      const normalized = normalizeSearch(query);
+
+      if (!normalized) {
+        return [];
+      }
+
+      const startsWithMatches = countryFeatures.filter((feature) =>
+        countryMatchesQuery(feature, (value) => value.startsWith(normalized)),
+      );
+
+      const includesMatches = countryFeatures.filter((feature) => {
+        if (countryMatchesQuery(feature, (value) => value.startsWith(normalized))) {
+          return false;
+        }
+        return countryMatchesQuery(feature, (value) => value.includes(normalized));
+      });
+
+      return [...startsWithMatches, ...includesMatches].slice(0, MAX_SUGGESTIONS);
+    }
+
+    function clearSearchInput() {
+      countrySearchInput.value = "";
+      updateSearchClearButton();
+      closeSuggestions();
+      countrySearchInput.focus();
+    }
+
+    function findCountryByName(name) {
+      const normalized = normalizeSearch(name);
+
+      if (!normalized) {
+        return null;
+      }
+
+      return (
+        countryFeatures.find((feature) => countryMatchesQuery(feature, (value) => value === normalized)) || null
+      );
+    }
+
+    function dismissSearchKeyboard() {
+      if (!isMobileBreakpoint()) {
+        return;
+      }
+
+      countrySearchInput.blur();
+      window.requestAnimationFrame(() => countrySearchInput.blur());
+    }
+
+    function onCountrySearch(event) {
+      event.preventDefault();
+      activateGlobe();
+      const match = findCountryByName(countrySearchInput.value);
+
+      if (match) {
+        focusOnCountry(match);
+      }
+
+      dismissSearchKeyboard();
+    }
+
+    function onCountrySearchInput() {
+      activateGlobe();
+      enableWheelZoom();
+      interruptCamera();
+      updateSearchClearButton();
+      renderSuggestions(getSuggestions(countrySearchInput.value));
+    }
+
+    function onCountrySearchKeyDown(event) {
+      if (event.key === "Escape") {
+        closeSuggestions();
+        return;
+      }
+
+      if (event.key === "Tab") {
+        closeSuggestions();
+        return;
+      }
+
+      if (!suggestionMatches.length) {
+        return;
+      }
+
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        activeSuggestionIndex = (activeSuggestionIndex + 1) % suggestionMatches.length;
+        updateActiveSuggestion();
+        return;
+      }
+
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        activeSuggestionIndex = (activeSuggestionIndex - 1 + suggestionMatches.length) % suggestionMatches.length;
+        updateActiveSuggestion();
+        return;
+      }
+
+      if (event.key === "Enter" && activeSuggestionIndex >= 0) {
+        event.preventDefault();
+        focusOnCountry(suggestionMatches[activeSuggestionIndex]);
+        dismissSearchKeyboard();
+      }
+    }
+
+    function selectSuggestionFromEvent(event) {
+      const suggestionButton = event.target.closest(".wf-globe-widget__suggestion");
+
+      if (!suggestionButton) {
+        return;
+      }
+
+      const index = Number(suggestionButton.dataset.index);
+      const match = suggestionMatches[index];
+
+      if (match) {
+        focusOnCountry(match);
+        dismissSearchKeyboard();
+      }
+    }
+
+    function onSuggestionClick(event) {
+      selectSuggestionFromEvent(event);
+    }
+
+    function onSuggestionPointerUp(event) {
+      if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
+        return;
+      }
+
+      event.preventDefault();
+      selectSuggestionFromEvent(event);
+    }
+
+    function onDocumentClick(event) {
+      if (!countrySearchForm.contains(event.target)) {
+        closeSuggestions();
+      }
+    }
+
+    function onDocumentKeyDown(event) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      disableWheelZoom();
+      if (event.defaultPrevented) return;
+      closeSuggestions();
+      clearSelectedCountry();
+    }
+
+    // -- Gestures: activation and wheel input --
+
+    function isDesktopHoverEnabled() {
+      return desktopHoverMediaQuery.matches;
+    }
+
+    function isMobileBreakpoint() {
+      return mobileBreakpointMediaQuery.matches;
+    }
+
+    function getDoubleTapDelay(event) {
+      if (event.pointerType === "touch") {
+        return MOBILE_DOUBLE_TAP_DELAY;
+      }
+
+      if (event.pointerType === "mouse") {
+        return DESKTOP_DOUBLE_CLICK_DELAY;
+      }
+
+      return 0;
+    }
+
+    function activateGlobe() {
+      hasActivatedGlobe = true;
+      canvas.classList.toggle("is-awaiting-interaction", false);
+      enableWheelZoom();
+    }
+
+    function enableWheelZoom() {
+      if (!hasActivatedGlobe) return;
+      wheelZoomEnabled = true;
+      setUIVisible(interactionHint, false, UI_MOTION.hint);
+    }
+
+    function disableWheelZoom() {
+      wheelZoomEnabled = false;
+      wheelDirection = 0;
+      setUIVisible(interactionHint, false, UI_MOTION.hint);
+    }
+
+    function onAreaPointerEnter(event) {
+      if (!hasActivatedGlobe && event.pointerType !== "touch") {
+        setUIVisible(interactionHint, true, UI_MOTION.hint);
+      }
+    }
+
+    function onRootPointerDown(event) {
+      if (!hasActivatedGlobe && event.target !== canvas && event.button === 0) activateGlobe();
+    }
+
+    function onCanvasPointerEnter() {
+      if (hasActivatedGlobe) enableWheelZoom();
+    }
+
+    function onWheel(event) {
+      if (!Number.isFinite(event.deltaY) || event.deltaY === 0) return;
+      if (!hasActivatedGlobe || !wheelZoomEnabled) return;
+      if (!event.cancelable) return;
+      event.preventDefault();
+      clearPendingMobileCountryTap();
+      interruptTravel();
+      const direction = Math.sign(event.deltaY);
+      if (wheelDirection && direction !== wheelDirection) globe.targetZoom = globe.zoom;
+      wheelDirection = direction;
+      // Convert wheel line/page units to CSS pixels before applying scale.
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
+      const logDelta = clamp(-event.deltaY * unit * WHEEL_ZOOM_SENSITIVITY, -Math.log(ZOOM_STEP), Math.log(ZOOM_STEP));
+      const nextZoom = clamp(globe.targetZoom * Math.exp(logDelta), globe.zoom / MAX_WHEEL_ZOOM_LEAD, globe.zoom * MAX_WHEEL_ZOOM_LEAD);
+      setTargetZoomFromUser(nextZoom);
+    }
+
+    // -- Gestures: dragging and pinch --
+
     function updatePointerState(isDragging) {
       pointer.dragging = isDragging;
       canvas.classList.toggle("is-dragging", isDragging);
+    }
+
+    function sampleDrag(x, y, now = performance.now()) {
+      pointer.samples.push({ x, y, time: now });
+      // Keep the sample immediately before the window so sparse input can be
+      // interpolated instead of losing its release speed altogether.
+      while (pointer.samples.length > 1 && pointer.samples[1].time <= now - RELEASE_SAMPLE_DURATION) {
+        pointer.samples.shift();
+      }
+    }
+
+    function beginReleaseGlide(event) {
+      sampleDrag(event.clientX, event.clientY, event.timeStamp);
+      let first = pointer.samples[0];
+      const last = pointer.samples[pointer.samples.length - 1];
+      const cutoff = last.time - RELEASE_SAMPLE_DURATION;
+      const next = pointer.samples[1];
+      if (next && first.time < cutoff) {
+        const fraction = (cutoff - first.time) / (next.time - first.time);
+        first = { x: first.x + (next.x - first.x) * fraction,
+          y: first.y + (next.y - first.y) * fraction, time: cutoff };
+      }
+      const elapsed = last.time - first.time;
+      if (elapsed <= 0) return;
+      const x = (last.x - first.x) / elapsed;
+      const y = (last.y - first.y) / elapsed;
+      const speed = Math.hypot(x, y);
+      if (speed < GLIDE_STOP_SPEED) return;
+      // A soft speed limit preserves differences between flicks without a
+      // sudden stop at a fixed travel distance.
+      const scale = MAX_RELEASE_SPEED * Math.tanh(speed / MAX_RELEASE_SPEED) / speed;
+      releaseGlide = { x: x * scale, y: y * scale, startedAt: performance.now(), decay: 1 };
     }
 
     function storeActivePointer(event) {
@@ -1178,10 +1931,12 @@
     function beginPinchZoom() {
       clearPendingMobileCountryTap();
       cancelMobileDoubleTapGesture();
+      interruptCamera(true);
+      pointer.samples = [];
       pointer.pinching = true;
       pointer.moved = true;
       pointer.pinchStartDistance = getPinchDistance();
-      pointer.pinchStartZoom = globe.targetZoom;
+      pointer.pinchStartZoom = globe.zoom;
     }
 
     function getFramePinchDistance() {
@@ -1197,11 +1952,16 @@
     function beginFramePinchZoom() {
       clearPendingMobileCountryTap();
       cancelMobileDoubleTapGesture();
+      interruptCamera(true);
+      pointer.samples = [];
       isFramePinching = true;
+      pointer.activePointers.forEach((_, pointerId) => {
+        if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId);
+      });
       pointer.activePointers.clear();
       pointer.pinching = false;
       pointer.pinchStartDistance = getFramePinchDistance();
-      pointer.pinchStartZoom = globe.targetZoom;
+      pointer.pinchStartZoom = globe.zoom;
       updatePointerState(false);
 
       frameTouchPointers.forEach((_, pointerId) => {
@@ -1217,7 +1977,7 @@
     }
 
     function onFrameTouchPointerDown(event) {
-      if (event.pointerType !== "touch") {
+      if (!hasActivatedGlobe || event.pointerType !== "touch") {
         return;
       }
 
@@ -1227,9 +1987,7 @@
         return;
       }
 
-      if (!isFramePinching) {
-        beginFramePinchZoom();
-      }
+      beginFramePinchZoom();
 
       event.preventDefault();
       event.stopPropagation();
@@ -1248,7 +2006,7 @@
 
       const pinchDistance = getFramePinchDistance();
       if (pinchDistance > 0 && pointer.pinchStartDistance > 0 && frameTouchPointers.size >= 2) {
-        setTargetZoomFromUser(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
+        setDirectUserZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
       }
 
       event.preventDefault();
@@ -1269,12 +2027,23 @@
 
       if (wasFramePinching) {
         suppressFrameClickUntil = Date.now() + 400;
+        pointer.pinchStartDistance = getFramePinchDistance();
+        pointer.pinchStartZoom = globe.zoom;
       }
 
       if (wasFramePinching && frameTouchPointers.size < 2) {
         isFramePinching = false;
         pointer.pinchStartDistance = 0;
         updatePointerState(false);
+        if (frameTouchPointers.size === 1 && event.type !== "pointercancel") {
+          // Continue naturally with the remaining finger, starting exactly
+          // where it is now. This contact can no longer select a country.
+          const [id, point] = frameTouchPointers.entries().next().value;
+          pointer.activePointers.set(id, point);
+          resetSinglePointerDrag();
+          updatePointerState(true);
+          canvas.setPointerCapture(id);
+        }
       }
 
       return wasFramePinching;
@@ -1319,209 +2088,11 @@
       pointer.startX = remainingPointer.x;
       pointer.startY = remainingPointer.y;
       pointer.moved = true;
+      pointer.samples = [];
+      sampleDrag(remainingPointer.x, remainingPointer.y);
     }
 
-    function updateActiveSuggestion() {
-      const suggestionButtons = Array.from(countrySuggestions.querySelectorAll(".wf-globe-widget__suggestion"));
-
-      suggestionButtons.forEach((button, index) => {
-        const isActive = index === activeSuggestionIndex;
-        button.classList.toggle("is-active", isActive);
-        button.setAttribute("aria-selected", isActive ? "true" : "false");
-      });
-
-      if (activeSuggestionIndex >= 0 && suggestionButtons[activeSuggestionIndex]) {
-        countrySearchInput.setAttribute("aria-activedescendant", suggestionButtons[activeSuggestionIndex].id);
-      } else {
-        countrySearchInput.removeAttribute("aria-activedescendant");
-      }
-    }
-
-    function renderSuggestions(matches) {
-      suggestionMatches = matches;
-      clearActiveSuggestion();
-
-      if (!matches.length) {
-        closeSuggestions();
-        return;
-      }
-
-      countrySuggestions.hidden = false;
-      setSearchExpanded(true);
-      countrySuggestions.innerHTML = matches
-        .map(
-          (feature, index) =>
-            `<button class="wf-globe-widget__suggestion" id="country-suggestion-${root.dataset.globeInstance}-${index}" data-index="${index}" type="button" role="option" aria-selected="false">${escapeHtml(getDisplayName(feature))}</button>`,
-        )
-        .join("");
-    }
-
-    function getSuggestions(query) {
-      const normalized = normalizeSearch(query);
-
-      if (!normalized) {
-        return [];
-      }
-
-      const startsWithMatches = countryFeatures.filter((feature) =>
-        countryMatchesQuery(feature, (value) => value.startsWith(normalized)),
-      );
-
-      const includesMatches = countryFeatures.filter((feature) => {
-        if (countryMatchesQuery(feature, (value) => value.startsWith(normalized))) {
-          return false;
-        }
-        return countryMatchesQuery(feature, (value) => value.includes(normalized));
-      });
-
-      return [...startsWithMatches, ...includesMatches].slice(0, MAX_SUGGESTIONS);
-    }
-
-    function setTargetZoom(nextZoom) {
-      const nextTargetZoom = clamp(nextZoom, globe.minZoom, globe.maxZoom);
-      const hasChanged = nextTargetZoom !== globe.targetZoom;
-      globe.targetZoom = nextTargetZoom;
-      return hasChanged;
-    }
-
-    function setTargetZoomFromUser(nextZoom) {
-      if (setTargetZoom(nextZoom) && selectedCountry) {
-        hasUserAdjustedZoomSinceCountrySelection = true;
-      }
-    }
-
-    function zoomBy(delta) {
-      const zoomFactor = 1 + Math.abs(delta) * 0.9;
-      setTargetZoomFromUser(globe.targetZoom * (delta > 0 ? zoomFactor : 1 / zoomFactor));
-    }
-
-    function getCountryFitZoom(feature) {
-      if (feature.properties.name === "France" || feature.properties.name === "Netherlands") {
-        return DEFAULT_SELECTED_COUNTRY_ZOOM;
-      }
-
-      const countryArea = window.d3.geoArea(feature);
-      if (Number.isFinite(countryArea) && countryArea <= SMALL_COUNTRY_MAX_ZOOM_AREA) {
-        return globe.maxZoom;
-      }
-
-      const previousRotate = projection.rotate();
-      const previousScale = projection.scale();
-
-      projection.rotate([globe.yaw, globe.pitch]);
-      projection.scale(globe.baseRadius);
-
-      const bounds = path.bounds(feature);
-
-      projection.rotate(previousRotate);
-      projection.scale(previousScale);
-
-      const width = bounds[1][0] - bounds[0][0];
-      const height = bounds[1][1] - bounds[0][1];
-
-      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return DEFAULT_SELECTED_COUNTRY_ZOOM;
-      }
-
-      const availableWidth = globe.centerX * 2 * SELECTED_COUNTRY_FIT_WIDTH;
-      const availableHeight = globe.centerY * 2 * SELECTED_COUNTRY_FIT_HEIGHT;
-      const fitZoom = Math.min(availableWidth / width, availableHeight / height);
-
-      // Larger countries retain a fitting or standard 8× view.
-      if (fitZoom <= DEFAULT_SELECTED_COUNTRY_ZOOM) {
-        return clamp(fitZoom, globe.minZoom, DEFAULT_SELECTED_COUNTRY_ZOOM);
-      }
-
-      // Only genuinely small countries get the closer fitted view. This
-      // avoids treating countries such as Belgium or Switzerland as microstates.
-      if (fitZoom >= SMALL_COUNTRY_FIT_ZOOM_THRESHOLD) {
-        return clamp(fitZoom, DEFAULT_SELECTED_COUNTRY_ZOOM, globe.maxZoom);
-      }
-
-      return DEFAULT_SELECTED_COUNTRY_ZOOM;
-    }
-
-    function focusOnCountry(feature) {
-      const center = getFocusCenter(feature);
-      if (!selectedCountry) {
-        zoomBeforeCountrySelection = globe.targetZoom;
-      }
-
-      selectedCountry = feature;
-      hasUserAdjustedZoomSinceCountrySelection = false;
-      isIntroPitchDriftActive = false;
-      globe.yaw = -center[0];
-      globe.pitch = clamp(-center[1], -90, 90);
-      globe.velocityX = SELECTED_COUNTRY_ROTATION_SPEED;
-      globe.velocityY = 0;
-      setTargetZoom(getCountryFitZoom(feature));
-      countrySearchInput.value = "";
-      updateSearchClearButton();
-      updateCountryLabel(getDisplayName(feature), COUNTRY_POPULATIONS[feature.properties.name]);
-      closeSuggestions();
-    }
-
-    function clearSelectedCountry() {
-      selectedCountry = null;
-      hasUserAdjustedZoomSinceCountrySelection = false;
-      if (zoomBeforeCountrySelection !== null) {
-        setTargetZoom(zoomBeforeCountrySelection);
-        zoomBeforeCountrySelection = null;
-      }
-      updateCountryLabel("");
-    }
-
-    function clearSearchInput() {
-      countrySearchInput.value = "";
-      updateSearchClearButton();
-      closeSuggestions();
-      countrySearchInput.focus();
-    }
-
-    function findCountryByName(name) {
-      const normalized = normalizeSearch(name);
-
-      if (!normalized) {
-        return null;
-      }
-
-      return (
-        countryFeatures.find((feature) => countryMatchesQuery(feature, (value) => value === normalized)) || null
-      );
-    }
-
-    function getCountryAtPoint(clientX, clientY) {
-      const bounds = canvas.getBoundingClientRect();
-      const point = [clientX - bounds.left, clientY - bounds.top];
-      const coordinates = projection.invert(point);
-
-      if (!coordinates) {
-        return null;
-      }
-
-      const { featureByName } = getRenderGeometrySource();
-      return countryFeatures.find((candidate) => window.d3.geoContains(
-        featureByName.get(candidate.properties.name) || candidate, coordinates,
-      )) || null;
-    }
-
-    function updateHoveredCountry(clientX, clientY) {
-      const match = getCountryAtPoint(clientX, clientY);
-      hoveredCountry = match === selectedCountry ? null : match;
-      canvas.classList.toggle("is-country-hovered", Boolean(hoveredCountry));
-    }
-
-    function selectCountry(feature) {
-      if (!feature || feature === selectedCountry) {
-        clearSelectedCountry();
-      } else {
-        focusOnCountry(feature);
-      }
-    }
-
-    function selectCountryAtPoint(clientX, clientY) {
-      selectCountry(getCountryAtPoint(clientX, clientY));
-    }
+    // -- Gestures: taps and pointer lifecycle --
 
     function clearPendingMobileCountryTap() {
       if (!pendingMobileCountryTap) {
@@ -1560,8 +2131,10 @@
       clearPendingMobileCountryTap();
       mobileDoubleTapGesture = {
         pointerId: event.pointerId,
+        startX: event.clientX,
         startY: event.clientY,
-        startZoom: globe.targetZoom,
+        startZoom: globe.zoom,
+        threshold: event.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD,
         hasDragged: false,
         suppressesTextSelection: event.pointerType === "touch",
       };
@@ -1584,10 +2157,11 @@
       }
 
       const verticalDistance = event.clientY - gesture.startY;
-
-      if (Math.abs(verticalDistance) > DRAG_THRESHOLD) {
-        gesture.hasDragged = true;
-        setTargetZoomFromUser(gesture.startZoom * Math.exp(verticalDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
+      const distance = Math.hypot(event.clientX - gesture.startX, verticalDistance);
+      if (distance > gesture.threshold) gesture.hasDragged = true;
+      if (gesture.hasDragged) {
+        const zoomDistance = Math.sign(verticalDistance) * Math.max(0, Math.abs(verticalDistance) - gesture.threshold);
+        setTargetZoomFromUser(gesture.startZoom * Math.exp(zoomDistance / MOBILE_DOUBLE_TAP_DRAG_ZOOM_DISTANCE));
       }
 
       event.preventDefault();
@@ -1612,7 +2186,7 @@
       }
 
       if (!isCancelled && !gesture.hasDragged) {
-        zoomBy(0.75);
+        zoomBy(1, DOUBLE_TAP_ZOOM_STEP);
       }
 
       event.preventDefault();
@@ -1655,7 +2229,7 @@
 
         if (elapsed <= doubleTapDelay && distance <= MOBILE_DOUBLE_TAP_MAX_DISTANCE) {
           clearPendingMobileCountryTap();
-          zoomBy(0.75);
+          zoomBy(1, DOUBLE_TAP_ZOOM_STEP);
           return;
         }
 
@@ -1682,322 +2256,247 @@
       pendingMobileCountryTap = tap;
     }
 
-function onPointerDown(event) {
-  if (event.pointerType === "touch") {
-    event.preventDefault();
-  }
+    function onPointerDown(event) {
+      if (event.button !== 0) return;
+      if (event.pointerType === "touch") event.preventDefault();
+      if (!hasActivatedGlobe) {
+        if (activationPointer) {
+          activationPointer.cancelled = true;
+          return;
+        }
+        activationPointer = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          threshold: event.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD,
+          cancelled: false,
+        };
+        canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+      enableWheelZoom();
+      interruptCamera(true);
+      wheelDirection = 0;
 
-  if (beginMobileDoubleTapGesture(event)) {
-    return;
-  }
+      if (beginMobileDoubleTapGesture(event)) return;
+      // A second contact outside the double-tap window starts a new gesture.
+      clearPendingMobileCountryTap();
+      storeActivePointer(event);
+      updatePointerState(true);
+      canvas.setPointerCapture(event.pointerId);
 
-  isIntroPitchDriftActive = false;
-  storeActivePointer(event);
-  updatePointerState(true);
-  canvas.setPointerCapture(event.pointerId);
-
-  if (pointer.activePointers.size === 1) {
-    pointer.pinching = false;
-    pointer.moved = false;
-    pointer.lastX = event.clientX;
-    pointer.lastY = event.clientY;
-    pointer.startX = event.clientX;
-    pointer.startY = event.clientY;
-    return;
-  }
-
-  beginPinchZoom();
-}
-
-function onPointerMove(event) {
-  if (updateMobileDoubleTapGesture(event)) {
-    return;
-  }
-
-  if (event.pointerType === "mouse" && !pointer.dragging && isDesktopHoverEnabled()) {
-    updateHoveredCountry(event.clientX, event.clientY);
-  }
-
-  if (!pointer.activePointers.has(event.pointerId)) {
-    return;
-  }
-
-  storeActivePointer(event);
-
-  if (pointer.activePointers.size >= 2) {
-    if (!pointer.pinching) {
+      if (pointer.activePointers.size === 1) {
+        pointer.pinching = false;
+        pointer.moved = false;
+        pointer.threshold = event.pointerType === "touch" ? TOUCH_DRAG_THRESHOLD : DRAG_THRESHOLD;
+        pointer.lastX = pointer.startX = event.clientX;
+        pointer.lastY = pointer.startY = event.clientY;
+        pointer.samples = [];
+        sampleDrag(event.clientX, event.clientY, event.timeStamp);
+        return;
+      }
       beginPinchZoom();
     }
 
-    const pinchDistance = getPinchDistance();
-
-    if (pointer.pinchStartDistance > 0) {
-      setTargetZoomFromUser(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
-    }
-
-    pointer.moved = true;
-    return;
-  }
-
-  if (!pointer.dragging) {
-    return;
-  }
-
-  const deltaX = event.clientX - pointer.lastX;
-  const deltaY = event.clientY - pointer.lastY;
-  const travelX = event.clientX - pointer.startX;
-  const travelY = event.clientY - pointer.startY;
-
-  pointer.lastX = event.clientX;
-  pointer.lastY = event.clientY;
-
-  if (Math.hypot(travelX, travelY) > DRAG_THRESHOLD) {
-    pointer.moved = true;
-  }
-
-  // Convert screen movement into angular movement using the globe's current
-  // rendered radius. This gives the same on-screen drag distance at every zoom.
-  const degreesPerPixel = 180 / (Math.PI * Math.max(globe.radius, 1));
-  const dragRotationX = deltaX * degreesPerPixel;
-  const dragRotationY = deltaY * degreesPerPixel;
-
-  globe.yaw += dragRotationX;
-  globe.pitch = clamp(globe.pitch - dragRotationY, -90, 90);
-  globe.velocityX = dragRotationX / 15;
-  globe.velocityY = -dragRotationY / 15;
-}
-
-function onPointerLeave() {
-  hoveredCountry = null;
-  canvas.classList.remove("is-country-hovered");
-}
-
-function onPointerUp(event) {
-  if (endMobileDoubleTapGesture(event)) {
-    return;
-  }
-
-  const wasTap = pointer.dragging && !pointer.moved && pointer.activePointers.size === 1 && pointer.activePointers.has(event.pointerId);
-
-  pointer.activePointers.delete(event.pointerId);
-
-  if (canvas.hasPointerCapture(event.pointerId)) {
-    canvas.releasePointerCapture(event.pointerId);
-  }
-
-  if (wasTap) {
-    handleTap(event);
-  }
-
-  if (!pointer.activePointers.size) {
-    pointer.pinching = false;
-    updatePointerState(false);
-    setPageTextSelectionSuppressed(false);
-    return;
-  }
-
-  if (pointer.activePointers.size === 1) {
-    pointer.pinching = false;
-    resetSinglePointerDrag();
-    return;
-  }
-
-  beginPinchZoom();
-}
-
-function onPointerCancel(event) {
-  if (endMobileDoubleTapGesture(event, true)) {
-    return;
-  }
-
-  pointer.activePointers.delete(event.pointerId);
-
-  if (canvas.hasPointerCapture(event.pointerId)) {
-    canvas.releasePointerCapture(event.pointerId);
-  }
-
-  if (!pointer.activePointers.size) {
-    pointer.pinching = false;
-    updatePointerState(false);
-    setPageTextSelectionSuppressed(false);
-    return;
-  }
-
-  if (pointer.activePointers.size === 1) {
-    pointer.pinching = false;
-    resetSinglePointerDrag();
-    return;
-  }
-
-  beginPinchZoom();
-}
-
-    function onWheel(event) {
-      event.preventDefault();
-      zoomBy(event.deltaY > 0 ? -0.14 : 0.14);
-    }
-
-    function onCountrySearch(event) {
-      event.preventDefault();
-      const match = findCountryByName(countrySearchInput.value);
-
-      if (match) {
-        focusOnCountry(match);
+    function onPointerMove(event) {
+      if (!hasActivatedGlobe) return;
+      if (updateMobileDoubleTapGesture(event)) return;
+      if (event.pointerType === "mouse" && !pointer.dragging && isDesktopHoverEnabled()) {
+        updateHoveredCountry(event.clientX, event.clientY);
       }
+      if (!pointer.activePointers.has(event.pointerId)) return;
+      storeActivePointer(event);
 
-      dismissSearchKeyboard();
-    }
-
-    function dismissSearchKeyboard() {
-      if (!isMobileBreakpoint()) {
+      if (pointer.activePointers.size >= 2) {
+        if (!pointer.pinching) beginPinchZoom();
+        const pinchDistance = getPinchDistance();
+        if (pointer.pinchStartDistance > 0) {
+          setDirectUserZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
+        }
+        pointer.moved = true;
         return;
       }
+      if (!pointer.dragging) return;
 
-      countrySearchInput.blur();
-      window.requestAnimationFrame(() => countrySearchInput.blur());
+      let deltaX = event.clientX - pointer.lastX;
+      let deltaY = event.clientY - pointer.lastY;
+      const travelX = event.clientX - pointer.startX;
+      const travelY = event.clientY - pointer.startY;
+      const distance = Math.hypot(travelX, travelY);
+      pointer.lastX = event.clientX;
+      pointer.lastY = event.clientY;
+
+      if (!pointer.moved) {
+        if (distance <= pointer.threshold) return;
+        pointer.moved = true;
+        clearPendingMobileCountryTap();
+        // Consume the dead zone once, preserving deliberate movement beyond it.
+        deltaX = travelX * (distance - pointer.threshold) / distance;
+        deltaY = travelY * (distance - pointer.threshold) / distance;
+      }
+      rotateByPixels(deltaX, deltaY);
+      sampleDrag(event.clientX, event.clientY, event.timeStamp);
     }
 
-    function onCountrySearchInput() {
+    function onPointerLeave() {
+      hoveredCountry = null;
+      canvas.classList.remove("is-country-hovered");
+    }
+
+    function finishPointer(event, cancelled = false) {
+      if (!hasActivatedGlobe) {
+        if (!activationPointer || activationPointer.id !== event.pointerId) return;
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+        const distance = Math.hypot(event.clientX - activationPointer.x, event.clientY - activationPointer.y);
+        const isFirstTap = !cancelled && !activationPointer.cancelled && distance <= activationPointer.threshold;
+        activationPointer = null;
+        if (isFirstTap) activateGlobe();
+        return;
+      }
+      if (endMobileDoubleTapGesture(event, cancelled)) return;
+      if (!pointer.activePointers.has(event.pointerId)) return;
+      const wasTap = !cancelled && pointer.dragging && !pointer.moved && pointer.activePointers.size === 1;
+      const wasDrag = !cancelled && pointer.moved && !pointer.pinching && pointer.activePointers.size === 1;
+      pointer.activePointers.delete(event.pointerId);
+      if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      if (cancelled) {
+        clearPendingMobileCountryTap();
+        releaseGlide = null;
+      } else if (wasTap) {
+        handleTap(event);
+      } else if (wasDrag) {
+        beginReleaseGlide(event);
+      }
+
+      if (!pointer.activePointers.size) {
+        pointer.pinching = false;
+        updatePointerState(false);
+        setPageTextSelectionSuppressed(false);
+      } else if (pointer.activePointers.size === 1) {
+        pointer.pinching = false;
+        resetSinglePointerDrag();
+      } else {
+        beginPinchZoom();
+      }
+    }
+
+    function onPointerUp(event) {
+      finishPointer(event);
+    }
+
+    function onPointerCancel(event) {
+      finishPointer(event, true);
+    }
+
+    function onWindowBlur() {
+      disableWheelZoom();
+      if (activationPointer && canvas.hasPointerCapture(activationPointer.id)) {
+        canvas.releasePointerCapture(activationPointer.id);
+      }
+      activationPointer = null;
+      clearPendingMobileCountryTap();
+      cancelMobileDoubleTapGesture();
+      interruptCamera(true);
+      pointer.activePointers.forEach((_, id) => {
+        if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id);
+      });
+      frameTouchPointers.forEach((_, id) => {
+        if (frame.hasPointerCapture(id)) frame.releasePointerCapture(id);
+      });
+      pointer.activePointers.clear();
+      frameTouchPointers.clear();
+      pointer.samples = [];
+      pointer.pinching = false;
+      isFramePinching = false;
+      updatePointerState(false);
+      setPageTextSelectionSuppressed(false);
+    }
+
+    // -- Event registration --
+
+    function registerEventListeners() {
+      window.addEventListener("resize", () => {
+        resizeCanvas();
+        updateSuggestionScrollState();
+
+        if (!isAnimationStarted) {
+          drawFrame();
+        }
+      });
+      window.addEventListener("blur", onWindowBlur);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) onWindowBlur();
+      });
+      root.addEventListener("pointerenter", onAreaPointerEnter);
+      root.addEventListener("pointermove", onAreaPointerEnter);
+      root.addEventListener("pointerdown", onRootPointerDown, { capture: true });
+      root.addEventListener("pointerleave", disableWheelZoom);
+      frame.addEventListener("pointerdown", onFrameTouchPointerDown, { capture: true, passive: false });
+      frame.addEventListener("pointermove", onFrameTouchPointerMove, { capture: true, passive: false });
+      frame.addEventListener("pointerup", onFrameTouchPointerUp, { capture: true, passive: false });
+      frame.addEventListener("pointercancel", onFrameTouchPointerCancel, { capture: true, passive: false });
+      frame.addEventListener("lostpointercapture", (event) => {
+        if (event.target === frame && !pointer.activePointers.has(event.pointerId)) onFrameTouchPointerCancel(event);
+      });
+      frame.addEventListener("click", onFrameClickCapture, true);
+      canvas.addEventListener("pointerdown", onPointerDown);
+      canvas.addEventListener("pointerenter", onCanvasPointerEnter);
+      canvas.addEventListener("pointermove", onPointerMove);
+      canvas.addEventListener("pointerleave", onPointerLeave);
+      canvas.addEventListener("pointerup", onPointerUp);
+      canvas.addEventListener("pointercancel", onPointerCancel);
+      canvas.addEventListener("lostpointercapture", onPointerCancel);
+      canvas.addEventListener("selectstart", (event) => event.preventDefault());
+      canvas.addEventListener("contextmenu", (event) => event.preventDefault());
+      document.addEventListener("selectstart", (event) => {
+        if (document.documentElement.classList.contains("wf-globe-widget--touch-gesture-active")) {
+          event.preventDefault();
+        }
+      }, true);
+      document.addEventListener("touchstart", preventNativeTouchSelection, { capture: true, passive: false });
+      document.addEventListener("touchmove", preventNativeTouchSelection, { capture: true, passive: false });
+      canvas.addEventListener("wheel", onWheel, { passive: false });
+      zoomInButton.addEventListener("click", onZoomInClick);
+      zoomOutButton.addEventListener("click", onZoomOutClick);
+      clearSelectionButton.addEventListener("click", clearSelectedCountry);
+      selectionPanel.addEventListener("click", (event) => {
+        if (!clearSelectionButton.hidden && !event.target.closest("a, button")) {
+          clearSelectedCountry();
+        }
+      });
+      countrySearchClearButton.addEventListener("click", clearSearchInput);
+      countrySearchForm.addEventListener("submit", onCountrySearch);
+      countrySuggestions.addEventListener("pointerup", onSuggestionPointerUp);
+      countrySuggestions.addEventListener("click", onSuggestionClick);
+      countrySearchInput.addEventListener("input", onCountrySearchInput);
+      countrySearchInput.addEventListener("focus", activateGlobe);
+      countrySearchInput.addEventListener("change", onCountrySearch);
+      countrySearchInput.addEventListener("keydown", onCountrySearchKeyDown);
+      document.addEventListener("click", onDocumentClick);
+      document.addEventListener("keydown", onDocumentKeyDown);
+      reducedMotionMediaQuery.addEventListener("change", onUIMotionPreferenceChange);
+    }
+
+    // -- Widget startup --
+
+    function initializeView() {
+      resizeCanvas();
+      updateCountryLabel("");
       updateSearchClearButton();
-      renderSuggestions(getSuggestions(countrySearchInput.value));
-    }
-
-    function onCountrySearchKeyDown(event) {
-      if (event.key === "Escape") {
-        closeSuggestions();
-        return;
-      }
-
-      if (event.key === "Tab") {
-        closeSuggestions();
-        return;
-      }
-
-      if (!suggestionMatches.length) {
-        return;
-      }
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        activeSuggestionIndex = (activeSuggestionIndex + 1) % suggestionMatches.length;
-        updateActiveSuggestion();
-        return;
-      }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        activeSuggestionIndex = (activeSuggestionIndex - 1 + suggestionMatches.length) % suggestionMatches.length;
-        updateActiveSuggestion();
-        return;
-      }
-
-      if (event.key === "Enter" && activeSuggestionIndex >= 0) {
-        event.preventDefault();
-        focusOnCountry(suggestionMatches[activeSuggestionIndex]);
-        dismissSearchKeyboard();
-      }
-    }
-
-    function onSuggestionClick(event) {
-      selectSuggestionFromEvent(event);
-    }
-
-    function selectSuggestionFromEvent(event) {
-      const suggestionButton = event.target.closest(".wf-globe-widget__suggestion");
-
-      if (!suggestionButton) {
-        return;
-      }
-
-      const index = Number(suggestionButton.dataset.index);
-      const match = suggestionMatches[index];
-
-      if (match) {
-        focusOnCountry(match);
-        dismissSearchKeyboard();
-      }
-    }
-
-    function onSuggestionPointerUp(event) {
-      if (event.pointerType !== "touch" || !isMobileBreakpoint()) {
-        return;
-      }
-
-      event.preventDefault();
-      selectSuggestionFromEvent(event);
-    }
-
-    function onDocumentClick(event) {
-      if (!countrySearchForm.contains(event.target)) {
-        closeSuggestions();
-      }
-    }
-
-    function onDocumentKeyDown(event) {
-      if (event.key !== "Escape" || event.defaultPrevented) {
-        return;
-      }
-
       closeSuggestions();
-      clearSelectedCountry();
+      drawFrame();
+      startWhenVisible();
     }
 
     if (!initializeDependencies()) {
       return;
     }
 
-    window.addEventListener("resize", () => {
-      resizeCanvas();
-
-      if (!isAnimationStarted) {
-        drawFrame();
-      }
-    });
-    frame.addEventListener("pointerdown", onFrameTouchPointerDown, { capture: true, passive: false });
-    frame.addEventListener("pointermove", onFrameTouchPointerMove, { capture: true, passive: false });
-    frame.addEventListener("pointerup", onFrameTouchPointerUp, { capture: true, passive: false });
-    frame.addEventListener("pointercancel", onFrameTouchPointerCancel, { capture: true, passive: false });
-    frame.addEventListener("click", onFrameClickCapture, true);
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerleave", onPointerLeave);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerCancel);
-    canvas.addEventListener("selectstart", (event) => event.preventDefault());
-    canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-    document.addEventListener("selectstart", (event) => {
-      if (document.documentElement.classList.contains("wf-globe-widget--touch-gesture-active")) {
-        event.preventDefault();
-      }
-    }, true);
-    document.addEventListener("touchstart", preventNativeTouchSelection, { capture: true, passive: false });
-    document.addEventListener("touchmove", preventNativeTouchSelection, { capture: true, passive: false });
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    zoomInButton.addEventListener("click", () => zoomBy(0.75));
-    zoomOutButton.addEventListener("click", () => zoomBy(-0.75));
-    clearSelectionButton.addEventListener("click", clearSelectedCountry);
-    selectionPanel.addEventListener("click", (event) => {
-      if (!clearSelectionButton.hidden && !event.target.closest("a, button")) {
-        clearSelectedCountry();
-      }
-    });
-    countrySearchClearButton.addEventListener("click", clearSearchInput);
-    countrySearchForm.addEventListener("submit", onCountrySearch);
-    countrySuggestions.addEventListener("pointerup", onSuggestionPointerUp);
-    countrySuggestions.addEventListener("click", onSuggestionClick);
-    countrySearchInput.addEventListener("input", onCountrySearchInput);
-    countrySearchInput.addEventListener("change", onCountrySearch);
-    countrySearchInput.addEventListener("keydown", onCountrySearchKeyDown);
-    document.addEventListener("click", onDocumentClick);
-    document.addEventListener("keydown", onDocumentKeyDown);
-
-    resizeCanvas();
-    updateCountryLabel("");
-    updateSearchClearButton();
-    closeSuggestions();
-    drawFrame();
-    startWhenVisible();
+    registerEventListeners();
+    initializeView();
   }
+
+  // -- Page startup and public API --
 
   function initGlobeWidgets() {
     const widgets = Array.from(document.querySelectorAll("[data-globe-widget]"));
@@ -2017,6 +2516,7 @@ function onPointerCancel(event) {
     init: initGlobeWidgets,
   };
 
+  // Topology loading completes before automatic widget initialization.
   function fetchTopology(topologyUrl) {
     return window.fetch(topologyUrl)
       .then((response) => {

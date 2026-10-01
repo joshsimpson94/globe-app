@@ -1,8 +1,10 @@
+/* -- Tokens and widget defaults -- */
+
 .wf-globe-widget {
   --wf-globe-text: #f7f8fa;
-  --wf-globe-panel: rgba(26, 62, 88, 0.88);
-  --wf-globe-panel-border: rgba(111, 185, 235, 0.3);
-  --wf-globe-panel-shadow: inset 0 1px 0 rgba(111, 185, 235, 0.16), 0 3px 9px rgba(0, 5, 14, 0.3);
+  --wf-globe-panel: rgba(22, 50, 77, 0.88);
+  --wf-globe-panel-border: rgba(145, 195, 231, 0.22);
+  --wf-globe-panel-shadow: inset 0 1px 0 rgba(200, 233, 251, 0.07), 0 4px 16px rgba(0, 5, 14, 0.2);
   --wf-globe-action: #5984d1;
   --wf-globe-action-hover: #7199df;
   --wf-globe-control-hover: rgba(26, 76, 111, 0.82);
@@ -10,12 +12,16 @@
   --wf-globe-inset-hover: rgba(111, 185, 235, 0.2);
   --wf-globe-inset-selected: rgba(111, 185, 235, 0.32);
   --wf-globe-border-width: 1px;
-  /* Outer surfaces and their smaller inset controls use separate radii. */
-  --wf-globe-control-radius: 12px;
-  --wf-globe-inset-radius: 8px;
+  /* Capsules, cards, and inset rows share a consistent family of curves. */
+  --wf-globe-control-radius: 24px;
+  --wf-globe-card-radius: 22px;
+  --wf-globe-inset-radius: 12px;
   --wf-globe-height: 100%;
   --wf-globe-control-offset: 16px;
   --wf-globe-hud-max-width: 391px;
+  --wf-globe-ui-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  --wf-globe-hover-duration: 240ms;
+  --wf-globe-hover-easing: cubic-bezier(0.25, 0.1, 0.25, 1);
   display: block;
   width: 100%;
   height: 100%;
@@ -26,13 +32,15 @@
   background: transparent;
   box-shadow: none;
   color: var(--wf-globe-text);
-  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
   font-size: 16px;
   font-weight: 400;
   line-height: 1.2;
   container-type: inline-size;
   overflow: hidden;
 }
+
+/* -- Shared box sizing, typography, focus, and touch selection -- */
 
 .wf-globe-widget,
 .wf-globe-widget * {
@@ -43,16 +51,29 @@
 .wf-globe-widget__suggestions,
 .wf-globe-widget__zoom-button,
 .wf-globe-widget__hud,
+.wf-globe-widget__interaction-hint,
 .wf-globe-widget__status {
   box-shadow: var(--wf-globe-panel-shadow);
 }
 
-.wf-globe-widget__input:focus-visible,
 .wf-globe-widget__zoom-button:focus-visible,
 .wf-globe-widget__search-clear:focus-visible,
 .wf-globe-widget__hud-clear:focus-visible {
   outline: 2px solid rgba(111, 185, 235, 0.8);
   outline-offset: 3px;
+}
+
+/* Exit animations retain pixels, but release pointer and keyboard interaction immediately. */
+.wf-globe-widget .is-ui-closing {
+  pointer-events: none;
+}
+
+/* Scale the artwork so button hit areas and positioning remain fixed. */
+.wf-globe-widget__zoom-button:active::before,
+.wf-globe-widget__search-clear:active .wf-globe-widget__search-clear-icon,
+.wf-globe-widget__hud-clear:active .wf-globe-widget__hud-clear-icon {
+  scale: 0.96;
+  transition-duration: 100ms;
 }
 
 /* Applied only while a touch gesture that began on the globe is active. */
@@ -63,6 +84,8 @@ html.wf-globe-widget--touch-gesture-active body * {
   user-select: none !important;
   -webkit-touch-callout: none;
 }
+
+/* -- Canvas layers and interaction hint -- */
 
 .wf-globe-widget__frame {
   position: relative;
@@ -104,6 +127,37 @@ html.wf-globe-widget--touch-gesture-active body * {
   cursor: grabbing;
 }
 
+.wf-globe-widget__canvas.is-awaiting-interaction {
+  cursor: pointer;
+}
+
+.wf-globe-widget__interaction-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - (var(--wf-globe-control-offset) * 2));
+  padding: 12px 16px;
+  border: var(--wf-globe-border-width) solid var(--wf-globe-panel-border);
+  border-radius: var(--wf-globe-control-radius);
+  background-color: var(--wf-globe-panel);
+  color: rgba(247, 248, 250, 0.78);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: center;
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.wf-globe-widget__interaction-hint[hidden] {
+  display: none;
+}
+
+/* -- Search and suggestions -- */
+
 .wf-globe-widget__search {
   position: absolute;
   top: var(--wf-globe-control-offset);
@@ -129,20 +183,20 @@ html.wf-globe-widget--touch-gesture-active body * {
   background-position: 14px 50%;
   background-size: 20px 20px;
   color: var(--wf-globe-text);
-  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: inherit;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.2;
   outline: none;
   -webkit-user-select: text;
   user-select: text;
-  -webkit-backdrop-filter: blur(6px) brightness(0.75);
-  backdrop-filter: blur(6px) brightness(0.75);
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+  transition: border-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing), background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing), transform 160ms var(--wf-globe-ui-easing);
 }
 
 .wf-globe-widget__input::placeholder {
-  color: rgba(247, 248, 250, 0.78);
+  color: rgba(247, 248, 250, 0.68);
 }
 
 .wf-globe-widget__input:placeholder-shown {
@@ -150,8 +204,13 @@ html.wf-globe-widget--touch-gesture-active body * {
 }
 
 .wf-globe-widget__input:focus {
-  border-color: var(--wf-globe-panel-border);
+  border-color: var(--wf-globe-control-hover-border);
   background-color: var(--wf-globe-panel);
+}
+
+.wf-globe-widget__input:focus-visible {
+  border-width: 2px;
+  border-color: rgba(111, 185, 235, 0.8);
 }
 
 .wf-globe-widget__search-clear {
@@ -163,14 +222,14 @@ html.wf-globe-widget--touch-gesture-active body * {
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: var(--wf-globe-inset-radius);
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
+  background: rgba(158, 208, 240, 0.11);
   transform: translateY(-50%);
   cursor: pointer;
-  transition: background-color 160ms ease;
+  transition: background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing);
 }
 
 .wf-globe-widget__search-clear:focus-visible {
@@ -188,40 +247,79 @@ html.wf-globe-widget--touch-gesture-active body * {
   width: 20px;
   height: 20px;
   display: block;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='18' y1='6' x2='6' y2='18'/%3E%3Cline x1='6' y1='6' x2='18' y2='18'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
+  transition: scale 180ms var(--wf-globe-ui-easing);
 }
 
 .wf-globe-widget__suggestions {
   display: grid;
-  gap: 6px;
-  padding: 8px;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 1px;
+  padding: 5px;
   border: var(--wf-globe-border-width) solid var(--wf-globe-panel-border);
-  border-radius: var(--wf-globe-control-radius);
+  border-radius: var(--wf-globe-card-radius);
   background-color: var(--wf-globe-panel);
-  -webkit-backdrop-filter: blur(6px) brightness(0.75);
-  backdrop-filter: blur(6px) brightness(0.75);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
 }
 
 .wf-globe-widget__suggestions[hidden] {
   display: none;
 }
 
+/* Inset the scroll indicator so it stays clear of the panel's rounded corners. */
+.wf-globe-widget__suggestions::-webkit-scrollbar {
+  width: 15px;
+}
+
+.wf-globe-widget__suggestions::-webkit-scrollbar-track {
+  margin-block: calc(var(--wf-globe-card-radius) - 4px);
+  background: transparent;
+}
+
+.wf-globe-widget__suggestions::-webkit-scrollbar-thumb {
+  border: 5px solid transparent;
+  border-radius: 999px;
+  background-color: rgba(247, 248, 250, 0.38);
+  background-clip: padding-box;
+}
+
+.wf-globe-widget__suggestions::-webkit-scrollbar-button {
+  display: none;
+}
+
+@supports (scrollbar-gutter: stable) and selector(::-webkit-scrollbar) {
+  .wf-globe-widget__suggestions.has-scrollbar {
+    scrollbar-gutter: stable;
+    padding-right: 0;
+  }
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .wf-globe-widget__suggestions {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(247, 248, 250, 0.38) transparent;
+  }
+}
+
 .wf-globe-widget__suggestion {
   width: 100%;
-  padding: 10px 12px;
+  padding: 10px 13px;
   border: 0;
-  border-radius: var(--wf-globe-inset-radius);
+  border-radius: calc(var(--wf-globe-card-radius) - 5px);
   background: transparent;
   color: var(--wf-globe-text);
   font: inherit;
-  font-weight: 500;
+  font-weight: 400;
+  line-height: 1.3;
   text-align: left;
   text-wrap: pretty;
   cursor: pointer;
-  transition: background-color 160ms ease, transform 160ms ease;
+  transition: background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing), transform 160ms var(--wf-globe-ui-easing);
 }
 
 .wf-globe-widget__suggestion:hover,
@@ -233,6 +331,8 @@ html.wf-globe-widget--touch-gesture-active body * {
 .wf-globe-widget__suggestion[aria-selected="true"] {
   background: var(--wf-globe-inset-selected);
 }
+
+/* -- Zoom controls and hover states -- */
 
 .wf-globe-widget__zoom {
   position: absolute;
@@ -252,14 +352,14 @@ html.wf-globe-widget--touch-gesture-active body * {
   border-radius: var(--wf-globe-control-radius);
   background-color: var(--wf-globe-panel);
   color: var(--wf-globe-text);
-  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: inherit;
   font-weight: 400;
   font-size: 0;
   line-height: 1;
   cursor: pointer;
-  -webkit-backdrop-filter: blur(6px) brightness(0.75);
-  backdrop-filter: blur(6px) brightness(0.75);
-  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+  transition: transform 160ms var(--wf-globe-ui-easing), background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing);
 }
 
 .wf-globe-widget__zoom-button::before {
@@ -271,22 +371,22 @@ html.wf-globe-widget--touch-gesture-active body * {
   height: 20px;
   margin: 0;
   transform: translate(-50%, -50%);
+  transition: scale 180ms var(--wf-globe-ui-easing);
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
 }
 
 .wf-globe-widget__zoom-button[data-zoom-in]::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='12' y1='5' x2='12' y2='19'/%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E");
 }
 
 .wf-globe-widget__zoom-button[data-zoom-out]::before {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23f7f8fa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E");
 }
 
 .wf-globe-widget__zoom-button:focus-visible,
 .wf-globe-widget__zoom-button:active {
-  border-color: var(--wf-globe-control-hover-border);
   background-color: var(--wf-globe-control-hover);
 }
 
@@ -297,8 +397,11 @@ html.wf-globe-widget--touch-gesture-active body * {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .wf-globe-widget__zoom-button:hover {
+  .wf-globe-widget__input:hover:not(:focus) {
     border-color: var(--wf-globe-control-hover-border);
+  }
+
+  .wf-globe-widget__zoom-button:hover {
     background-color: var(--wf-globe-control-hover);
   }
 
@@ -306,6 +409,8 @@ html.wf-globe-widget--touch-gesture-active body * {
     background: var(--wf-globe-inset-hover);
   }
 }
+
+/* -- Selection information and clear control -- */
 
 .wf-globe-widget__hud {
   position: absolute;
@@ -319,18 +424,23 @@ html.wf-globe-widget--touch-gesture-active body * {
   grid-template-columns: 32px minmax(0, 1fr) 32px;
   column-gap: 12px;
   align-items: center;
-  padding: 12px 14px;
+  padding: 14px 16px;
   border: var(--wf-globe-border-width) solid var(--wf-globe-panel-border);
-  border-radius: var(--wf-globe-control-radius);
+  border-radius: var(--wf-globe-card-radius);
   background-color: var(--wf-globe-panel);
   color: var(--wf-globe-text);
-  font-size: 1rem;
+  font-size: 17px;
   font-weight: 600;
+  line-height: 1.3;
   text-align: center;
   transform: translateX(-50%);
-  -webkit-backdrop-filter: blur(6px) brightness(0.75);
-  backdrop-filter: blur(6px) brightness(0.75);
-  transition: background-color 160ms ease, border-color 160ms ease;
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
+  transition: background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing), border-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing);
+}
+
+.wf-globe-widget__hud[hidden] {
+  display: none;
 }
 
 .wf-globe-widget__hud:has(.wf-globe-widget__hud-clear:not([hidden])) {
@@ -360,15 +470,15 @@ html.wf-globe-widget--touch-gesture-active body * {
 
 .wf-globe-widget__population-details {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   flex: 1 1 max-content;
   min-width: 0;
   max-width: 100%;
 }
 
 .wf-globe-widget__population-value {
-  color: rgba(247, 248, 250, 0.78);
-  font-size: 13px;
+  color: rgba(247, 248, 250, 0.7);
+  font-size: 14px;
   font-weight: 400;
   line-height: 1.4;
 }
@@ -393,7 +503,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   line-height: 1;
   text-decoration: none;
   white-space: nowrap;
-  transition: background-color 160ms ease, border-color 160ms ease;
+  transition: background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing), border-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing);
 }
 
 .wf-globe-widget__population-link:hover {
@@ -408,7 +518,7 @@ html.wf-globe-widget--touch-gesture-active body * {
 .wf-globe-widget__external-link-icon {
   width: 18px;
   height: 18px;
-  /* Match the ~1.85px rendered stroke of the search and control icons. */
+  /* Keep the external-link icon legible at its compact size. */
   stroke-width: 2.5;
   flex: none;
 }
@@ -442,14 +552,14 @@ html.wf-globe-widget--touch-gesture-active body * {
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: var(--wf-globe-inset-radius);
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   justify-self: end;
-  background: transparent;
+  background: rgba(158, 208, 240, 0.11);
   cursor: pointer;
-  transition: transform 160ms ease, background-color 160ms ease;
+  transition: transform 160ms var(--wf-globe-ui-easing), background-color var(--wf-globe-hover-duration) var(--wf-globe-hover-easing);
 }
 
 .wf-globe-widget__hud-clear:focus-visible {
@@ -457,7 +567,11 @@ html.wf-globe-widget--touch-gesture-active body * {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .wf-globe-widget__hud-clear:hover {
+  .wf-globe-widget__hud:hover {
+    border-color: var(--wf-globe-control-hover-border);
+  }
+
+  .wf-globe-widget__hud:hover .wf-globe-widget__hud-clear {
     background: var(--wf-globe-inset-hover);
   }
 
@@ -474,6 +588,8 @@ html.wf-globe-widget--touch-gesture-active body * {
   display: none;
 }
 
+/* -- Loading failure status -- */
+
 .wf-globe-widget__status {
   position: absolute;
   z-index: 2;
@@ -487,9 +603,11 @@ html.wf-globe-widget--touch-gesture-active body * {
   color: #ffe6a3;
   text-align: center;
   transform: translate(-50%, -50%);
-  -webkit-backdrop-filter: blur(6px) brightness(0.75);
-  backdrop-filter: blur(6px) brightness(0.75);
+  -webkit-backdrop-filter: blur(18px) saturate(125%);
+  backdrop-filter: blur(18px) saturate(125%);
 }
+
+/* -- Responsive rules: viewport breakpoints -- */
 
 @media (max-width: 560px) {
   .wf-globe-widget {
@@ -510,8 +628,7 @@ html.wf-globe-widget--touch-gesture-active body * {
 
 @media (max-width: 412px) {
   .wf-globe-widget {
-    --wf-globe-control-radius: 10px;
-    --wf-globe-inset-radius: 6px;
+    --wf-globe-card-radius: 20px;
   }
 
   .wf-globe-widget__suggestions {
@@ -519,6 +636,8 @@ html.wf-globe-widget--touch-gesture-active body * {
     overflow-y: auto;
   }
 }
+
+/* -- Responsive rules: host container breakpoints -- */
 
 @container (max-width: 560px) {
   .wf-globe-widget {
@@ -545,12 +664,34 @@ html.wf-globe-widget--touch-gesture-active body * {
 
 @container (max-width: 412px) {
   .wf-globe-widget__frame {
-    --wf-globe-control-radius: 10px;
-    --wf-globe-inset-radius: 6px;
+    --wf-globe-card-radius: 20px;
   }
 
   .wf-globe-widget__suggestions {
     max-height: 180px;
     overflow-y: auto;
+  }
+}
+
+/* -- Reduced UI motion -- */
+
+@media (prefers-reduced-motion: reduce) {
+  .wf-globe-widget__input,
+  .wf-globe-widget__search-clear,
+  .wf-globe-widget__search-clear-icon,
+  .wf-globe-widget__suggestion,
+  .wf-globe-widget__zoom-button,
+  .wf-globe-widget__zoom-button::before,
+  .wf-globe-widget__hud,
+  .wf-globe-widget__hud-clear,
+  .wf-globe-widget__hud-clear-icon,
+  .wf-globe-widget__population-link {
+    transition: none;
+  }
+
+  .wf-globe-widget__zoom-button:active::before,
+  .wf-globe-widget__search-clear:active .wf-globe-widget__search-clear-icon,
+  .wf-globe-widget__hud-clear:active .wf-globe-widget__hud-clear-icon {
+    scale: 1;
   }
 }
