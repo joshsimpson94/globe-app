@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Webflow Globe Widget Demo</title>
-  <link rel="stylesheet" href="globe-widget.css?v=content-wrap-controls">
+  <link rel="stylesheet" href="globe-widget.css?v=tap-globe-hint">
   <style>
     html,
     body {
@@ -39,9 +39,9 @@
         <button class="wf-globe-widget__zoom-button" data-zoom-out type="button" aria-label="Zoom out">–</button>
       </div>
 
-      <div class="wf-globe-widget__hud">
+      <div class="wf-globe-widget__hud" hidden>
         <span class="wf-globe-widget__hud-spacer" aria-hidden="true"></span>
-        <span class="wf-globe-widget__label" data-country-label aria-live="polite">Select a country</span>
+        <span class="wf-globe-widget__label" data-country-label aria-live="polite"></span>
         <button class="wf-globe-widget__hud-clear" data-clear-selection type="button" aria-label="Deselect country" hidden>
           <span class="wf-globe-widget__hud-clear-icon" aria-hidden="true"></span>
         </button>
@@ -58,6 +58,6 @@
     window.WORLD_TOPOLOGY_OVERVIEW_URL = "countries-50m-overview.json?v=tier-matched-fills";
     window.WORLD_TOPOLOGY_CLOSE_DETAIL_URL = "countries-50m-close.json?v=close-high-detail";
   </script>
-  <script src="globe-widget.js?v=content-wrap-controls"></script>
+  <script src="globe-widget.js?v=double-tap-step"></script>
 </body>
 </html>
