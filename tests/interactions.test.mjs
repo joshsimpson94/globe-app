@@ -8,10 +8,12 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../globe-widget.js', import.meta.url), 'utf8');
 const country = { properties: { name: 'Test country' }, center: [170, 20] };
 
-function harness({ reducedMotion = false, activated = true, startWidget = false, dependenciesAvailable = true, animations = false } = {}) {
+function harness({ reducedMotion = false, activated = true, startWidget = false, dependenciesAvailable = true, animations = false, hostControlled = false } = {}) {
   let now = 1000;
   let timerId = 0;
   const timers = new Map();
+  const frames = new Map();
+  let frameId = 0;
   const listeners = [];
   const lifecycle = [];
   const animationLog = [];
@@ -82,12 +84,14 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     return { root, elements };
   }
   const { root, elements } = makeRoot();
+  if (hostControlled) root.dataset.globeActivity = "host";
   const motionQuery = {
     matches: reducedMotion,
     addEventListener(type, callback, options) { recordListener('motionQuery', type, callback, options); },
   };
   const window = {
     lifecycle, dependenciesAvailable,
+    parent: { postMessage() {} },
     addEventListener(type, callback, options) { recordListener('window', type, callback, options); },
     matchMedia: (query) => query.includes('reduced-motion') ? motionQuery : { matches: false },
     getComputedStyle(node) {
@@ -114,7 +118,7 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     getCountryAtPoint = () => window.hitCountry || null;
     window.widget = {
       globe, pointer, frameTouchPointers, canvas, frame, interactionHint,
-      render, onPointerDown, onPointerMove, onPointerUp, onPointerCancel,
+      render, startAnimation, pauseAnimation, onHostActivity, onPointerDown, onPointerMove, onPointerUp, onPointerCancel,
       onFrameTouchPointerDown, onFrameTouchPointerMove, onFrameTouchPointerUp, onFrameTouchPointerCancel,
       onAreaPointerEnter, onRootPointerDown, onCanvasPointerEnter, onPointerLeave,
       enableWheelZoom, disableWheelZoom, onWheel, onWindowBlur, onDocumentKeyDown,
@@ -158,7 +162,7 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
   `;
   const instrumented = source.replace('    if (!initializeDependencies()) {', bridge + '\n    if (!initializeDependencies()) {')
     .replace('  if (document.readyState === "loading") {', '  window.createWidget = createGlobeWidget;\n  if (document.readyState === "loading") {');
-  vm.runInNewContext(instrumented, { window, document, performance: { now: () => now }, requestAnimationFrame() {}, console });
+  vm.runInNewContext(instrumented, { window, document, performance: { now: () => now }, requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; }, cancelAnimationFrame(id) { frames.delete(id); }, console });
   listeners.length = 0;
   lifecycle.length = 0;
   window.createWidget(root);
@@ -196,7 +200,7 @@ function harness({ reducedMotion = false, activated = true, startWidget = false,
     widget.disableWheelZoom();
   }
   return { widget, window, advance, event, wheel, drag, listeners, lifecycle, elements, panel, makeRoot,
-    animationLog, motionQuery };
+    animationLog, motionQuery, frames, document };
 }
 
 function view(widget) {
@@ -878,4 +882,54 @@ test('reduced motion search applies the destination immediately', () => {
   assert.equal(w.globe.yaw, -170);
   assert.equal(w.globe.pitch, -20);
   assert.equal(w.globe.zoom, w.globe.targetZoom);
+});
+
+
+test('host-controlled animation validates messages, preserves state and owns one loop', () => {
+  const { widget: w, window, frames, document } = harness({ hostControlled: true, activated: false });
+  const message = (data, source = window.parent) => w.onHostActivity({ source, data });
+  w.startAnimation();
+  assert.equal(frames.size, 0);
+  message({ type: 'portfolio-sample-activity', active: true }, {});
+  message({ type: 'portfolio-sample-activity', active: 'true' });
+  assert.equal(frames.size, 0);
+  message({ type: 'portfolio-sample-activity', active: true });
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 1);
+  w.selectCountry(country);
+  const before = view(w);
+  message({ type: 'portfolio-sample-activity', active: false });
+  assert.equal(frames.size, 0);
+  assert.deepEqual(view(w), before);
+  assert.equal(w.selected, country);
+  document.hidden = true;
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 0);
+  document.hidden = false;
+  message({ type: 'portfolio-sample-activity', active: true });
+  assert.equal(frames.size, 1);
+});
+
+test('resuming a host-controlled globe excludes paused time from country travel', () => {
+  const { widget: w, window, advance } = harness({ hostControlled: true, activated: false });
+  const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
+  active(true);
+  w.selectCountry(country);
+  advance(100, true);
+  const before = view(w);
+  active(false);
+  advance(60000);
+  active(true);
+  w.render(61100);
+  assert.deepEqual(view(w), before);
+  advance(100, true);
+  assert.notDeepEqual(view(w), before);
+});
+
+test('standalone globes ignore host activity messages', () => {
+  const { widget: w, window, frames } = harness({ activated: false });
+  w.startAnimation();
+  assert.equal(frames.size, 1);
+  w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: false } });
+  assert.equal(frames.size, 1);
 });

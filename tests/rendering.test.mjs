@@ -29,6 +29,7 @@ function draw(features) {
   };
   function element() {
     return {
+      dataset: {},
       classList: { toggle() {} },
       setAttribute() {}, insertBefore() {}, appendChild() {},
       getContext: () => context,
