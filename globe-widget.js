@@ -1420,7 +1420,7 @@
 
     function render(timestamp) {
       animationFrame = null;
-      if (hostControlled && (!hostActive || document.hidden)) {
+      if (hostControlled && (document.hidden || (!hostActive && !hasCameraMotion()))) {
         pauseAnimation();
         return;
       }
@@ -1500,7 +1500,16 @@
       }
 
       drawFrame();
+      if (hostControlled && !hostActive && !hasCameraMotion()) {
+        pauseAnimation();
+        return;
+      }
       animationFrame = requestAnimationFrame(render);
+    }
+
+    function hasCameraMotion() {
+      return Boolean(centerTransition || searchTravel || zoomReturn || releaseGlide ||
+        Math.abs(globe.zoom - globe.targetZoom) >= 0.001);
     }
 
     function startAnimation() {
@@ -1536,7 +1545,7 @@
       if (!data || data.type !== "portfolio-sample-activity" || typeof data.active !== "boolean") return;
       hostActive = data.active;
       if (hostActive && !document.hidden) startAnimation();
-      else pauseAnimation();
+      else if (document.hidden || !hasCameraMotion()) pauseAnimation();
     }
 
     function startWhenVisible() {

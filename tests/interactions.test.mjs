@@ -177,6 +177,12 @@ function harness({ reducedMotion = false, desktopHover = false, startWidget = fa
     }
     if (render) widget.render(now);
   }
+  function tick(ms) {
+    advance(ms);
+    const [id, callback] = frames.entries().next().value;
+    frames.delete(id);
+    callback(now);
+  }
   function event(x = 100, y = 100, extra = {}) {
     return { clientX: x, clientY: y, pointerId: 1, pointerType: 'touch', button: 0,
       type: 'pointerdown', cancelable: true, prevented: false,
@@ -193,7 +199,7 @@ function harness({ reducedMotion = false, desktopHover = false, startWidget = fa
     advance(20); widget.onPointerMove(event(150, 120));
     advance(20); widget.onPointerMove(event(190, 140));
   }
-  return { widget, window, advance, event, wheel, drag, listeners, lifecycle, elements, panel, root, makeRoot,
+  return { widget, window, advance, tick, event, wheel, drag, listeners, lifecycle, elements, panel, root, makeRoot,
     animationLog, motionQuery, frames, document };
 }
 
@@ -818,7 +824,7 @@ test('reduced motion search applies the destination immediately', () => {
 
 
 test('host-controlled animation validates messages, preserves state and owns one loop', () => {
-  const { widget: w, window, frames, document } = harness({ hostControlled: true });
+  const { widget: w, window, frames, document, tick } = harness({ hostControlled: true });
   const message = (data, source = window.parent) => w.onHostActivity({ source, data });
   w.startAnimation();
   assert.equal(frames.size, 0);
@@ -831,9 +837,12 @@ test('host-controlled animation validates messages, preserves state and owns one
   w.selectCountry(country);
   const before = view(w);
   message({ type: 'portfolio-sample-activity', active: false });
-  assert.equal(frames.size, 0);
+  assert.equal(frames.size, 1);
   assert.deepEqual(view(w), before);
   assert.equal(w.selected, country);
+  tick(500);
+  assert.equal(w.travel, null);
+  assert.equal(frames.size, 0);
   document.hidden = true;
   message({ type: 'portfolio-sample-activity', active: true });
   assert.equal(frames.size, 0);
@@ -842,20 +851,72 @@ test('host-controlled animation validates messages, preserves state and owns one
   assert.equal(frames.size, 1);
 });
 
-test('resuming a host-controlled globe excludes paused time from country travel', () => {
-  const { widget: w, window, advance } = harness({ hostControlled: true });
+test('a hidden host-controlled globe pauses immediately and excludes paused time from country travel', () => {
+  const { widget: w, window, advance, document } = harness({ hostControlled: true });
   const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
   active(true);
   w.selectCountry(country);
   advance(100, true);
   const before = view(w);
+  document.hidden = true;
   active(false);
   advance(60000);
+  document.hidden = false;
   active(true);
   w.render(61100);
   assert.deepEqual(view(w), before);
   advance(100, true);
   assert.notDeepEqual(view(w), before);
+});
+
+test('host deactivation waits for zoom easing and zoom return to finish', () => {
+  for (const returning of [false, true]) {
+    const { widget: w, window, frames, tick } = harness({ hostControlled: true });
+    const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
+    active(true);
+    if (returning) {
+      w.selectCountry(country);
+      tick(500);
+      w.clearSelectedCountry();
+    } else {
+      w.zoomBy(1);
+    }
+    active(false);
+    assert.equal(frames.size, 1);
+    for (let i = 0; i < 60 && frames.size; i++) tick(16);
+    assert.equal(frames.size, 0);
+    assert.ok(Math.abs(w.globe.zoom - w.globe.targetZoom) < 0.001);
+  }
+});
+
+test('host deactivation pauses immediately when the camera has no pending movement', () => {
+  const { widget: w, window, frames, root } = harness({ hostControlled: true });
+  const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
+  active(true);
+  assert.equal(frames.size, 1);
+  active(false);
+  assert.equal(frames.size, 0);
+  assert.equal(root.dataset.globeAnimation, 'paused');
+});
+
+test('host deactivation finishes release glide and a quick reactivation keeps one loop', () => {
+  const { widget: w, window, frames, tick, event, drag, root } = harness({ hostControlled: true });
+  const active = (value) => w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: value } });
+  active(true);
+  drag();
+  w.onPointerUp(event(190, 140));
+  assert.ok(w.glide);
+  active(false);
+  assert.equal(frames.size, 1);
+  tick(100);
+  assert.ok(w.glide);
+  active(true);
+  assert.equal(frames.size, 1);
+  active(false);
+  tick(1200);
+  assert.equal(w.glide, null);
+  assert.equal(frames.size, 0);
+  assert.equal(root.dataset.globeAnimation, 'paused');
 });
 
 test('standalone globes ignore host activity messages', () => {
