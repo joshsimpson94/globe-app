@@ -196,8 +196,11 @@ function harness({ reducedMotion = false, desktopHover = false, startWidget = fa
   function drag() {
     widget.onPointerDown(event());
     advance(20); widget.onPointerMove(event(120, 100));
+    if (frames.size) tick(0); else advance(0, true);
     advance(20); widget.onPointerMove(event(150, 120));
+    tick(0);
     advance(20); widget.onPointerMove(event(190, 140));
+    tick(0);
   }
   return { widget, window, advance, tick, event, wheel, drag, listeners, lifecycle, elements, panel, root, makeRoot,
     animationLog, motionQuery, frames, document };
@@ -559,10 +562,12 @@ test('touch and mouse jitter do not rotate; crossing the threshold consumes only
     const { widget: w, event, advance } = harness();
     const before = view(w);
     w.onPointerDown(event(100, 100, { pointerType }));
+    advance(0, true);
     w.onPointerMove(event(100 + threshold, 100, { pointerType }));
     assert.deepEqual(view(w), before);
     advance(16);
     w.onPointerMove(event(100 + threshold + 1, 100, { pointerType }));
+    advance(650, true);
     assert.ok(Math.abs(w.globe.yaw - before.yaw - 180 / (Math.PI * 210)) < 1e-9);
   }
 });
@@ -623,11 +628,82 @@ test('double tap is a 50% step and double-tap drag eases toward the finger in bo
   assert.ok(w.globe.targetZoom < initial);
 });
 
+test('mouse and touch drags ease toward their full destination without overshooting', () => {
+  for (const pointerType of ['mouse', 'touch']) {
+    const { widget: w, event, advance } = harness();
+    const input = (x) => event(x, 100, { pointerType });
+    w.onPointerDown(input(100));
+    advance(0, true);
+    const yaw = w.globe.yaw;
+    advance(16); w.onPointerMove(input(200));
+    assert.equal(w.globe.yaw, yaw, 'events queue movement until the animation frame');
+    advance(0, true);
+    const destination = yaw + (100 - w.pointer.threshold) * 180 / (Math.PI * 210);
+    assert.ok(w.globe.yaw > yaw && w.globe.yaw < destination);
+    const firstYaw = w.globe.yaw;
+    advance(65, true);
+    assert.ok(w.globe.yaw > firstYaw && w.globe.yaw < destination);
+    advance(600, true);
+    assert.ok(Math.abs(w.globe.yaw - destination) < 1e-9);
+    w.onPointerMove(input(150));
+    advance(16, true);
+    assert.ok(w.globe.yaw < destination, 'reversing the pointer reverses rotation');
+  }
+});
+
+test('drag easing depends on elapsed time and total input rather than event or display frequency', () => {
+  function rotate(frameDuration, splitInput) {
+    const { widget: w, event, advance } = harness();
+    w.onPointerDown(event());
+    advance(0, true);
+    if (splitInput) {
+      for (let x = 110; x <= 200; x += 10) w.onPointerMove(event(x, 100));
+    } else {
+      w.onPointerMove(event(200, 100));
+    }
+    for (let elapsed = 0; elapsed < 160; elapsed += frameDuration) advance(frameDuration, true);
+    return w.globe.yaw;
+  }
+  const expected = rotate(16, false);
+  assert.ok(Math.abs(rotate(8, false) - expected) < 1e-9);
+  assert.ok(Math.abs(rotate(16, true) - expected) < 1e-9);
+});
+
+test('new contact, pinch, cancellation, and blur discard pending drag movement', () => {
+  for (const action of ['touch', 'pinch', 'frame-pinch', 'cancel', 'blur']) {
+    const { widget: w, event, advance } = harness();
+    w.onPointerDown(event());
+    w.onPointerMove(event(200, 150));
+    if (action === 'touch') {
+      w.onPointerUp(event(200, 150));
+      w.onPointerDown(event(200, 150));
+    }
+    if (action === 'pinch') w.onPointerDown(event(250, 150, { pointerId: 2 }));
+    if (action === 'frame-pinch') {
+      w.onFrameTouchPointerDown(event());
+      w.onFrameTouchPointerDown(event(250, 150, { pointerId: 2 }));
+    }
+    if (action === 'cancel') w.onPointerCancel(event(200, 150));
+    if (action === 'blur') w.onWindowBlur();
+    const before = view(w);
+    advance(100, true);
+    assert.deepEqual(view(w), before, action);
+  }
+});
+
+test('reduced-motion dragging applies input directly', () => {
+  const { widget: w, event } = harness({ reducedMotion: true });
+  w.onPointerDown(event());
+  const yaw = w.globe.yaw;
+  w.onPointerMove(event(200, 100));
+  assert.ok(Math.abs(w.globe.yaw - yaw - 96 * 180 / (Math.PI * 210)) < 1e-9);
+});
+
 test('release glide carries a flick, decays continuously, and resumes automatic rotation', () => {
   const { widget: w, event, advance, drag } = harness();
   drag(); w.onPointerUp(event(190, 140));
   assert.ok(w.glide);
-  assert.ok(Math.hypot(w.glide.x, w.glide.y) <= 1.2);
+  assert.ok(Math.hypot(w.glide.x, w.glide.y) <= 0.9);
   const before = view(w);
   advance(90, true);
   const firstMovement = Math.abs(w.globe.pitch - before.pitch);
@@ -637,7 +713,7 @@ test('release glide carries a flick, decays continuously, and resumes automatic 
   assert.ok(firstMovement > secondMovement && secondMovement > 0);
   assert.ok(w.globe.velocityX > 0);
   advance(220, true);
-  assert.ok(Math.abs(w.globe.pitch - before.pitch) > 20);
+  assert.ok(Math.abs(w.globe.pitch - before.pitch) > 10);
   advance(1000, true);
   assert.equal(w.glide, null);
 });
@@ -649,7 +725,7 @@ test('release speed uses input timestamps when event handling is delayed', () =>
   advance(120); w.onPointerMove(event(140, 100, { timeStamp: 1032 }));
   advance(120); w.onPointerUp(event(140, 100, { timeStamp: 1048 }));
   assert.ok(w.glide);
-  assert.ok(Math.hypot(w.glide.x, w.glide.y) <= 1.2);
+  assert.ok(Math.hypot(w.glide.x, w.glide.y) <= 0.9);
 });
 
 test('holding still, cancellation, and touching again suppress the release glide', () => {
@@ -664,7 +740,11 @@ test('holding still, cancellation, and touching again suppress the release glide
     assert.equal(w.glide, null);
     const before = view(w);
     advance(300, true);
-    assert.deepEqual(view(w), before);
+    if (action === 'hold') {
+      assert.ok(w.globe.pitch < before.pitch, 'a held drag can finish settling without a flick');
+    } else {
+      assert.deepEqual(view(w), before);
+    }
   }
 });
 
@@ -742,13 +822,13 @@ test('wheel bursts allow fast deliberate zoom while bounding queued movement and
   assert.ok(w.globe.targetZoom >= w.globe.zoom / 2);
 });
 
-test('pinch starts at displayed zoom, follows separation, and resets when fingers change', () => {
-  const { widget: w, event } = harness();
+test('pinch starts at displayed zoom, eases toward separation, and resets when fingers change', () => {
+  const { widget: w, event, advance } = harness();
   w.globe.targetZoom = 8;
   w.onFrameTouchPointerDown(event());
   w.onFrameTouchPointerDown(event(200, 100, { pointerId: 2 }));
   w.onFrameTouchPointerMove(event(300, 100, { pointerId: 2 }));
-  assert.equal(w.globe.zoom, 2.1);
+  assert.equal(w.globe.zoom, 1.05);
   assert.equal(w.globe.targetZoom, 2.1);
   w.onFrameTouchPointerDown(event(400, 100, { pointerId: 3 }));
   w.onFrameTouchPointerUp(event(100, 100));
@@ -759,12 +839,101 @@ test('pinch starts at displayed zoom, follows separation, and resets when finger
   assert.deepEqual(view(w), before);
   w.onFrameTouchPointerMove(event(350, 100, { pointerId: 2 }));
   w.onPointerMove(event(350, 100, { pointerId: 2 }));
+  advance(1000 / 60, true);
   assert.ok(w.globe.yaw > before.yaw);
   assert.equal(w.globe.zoom, before.zoom);
   w.onFrameTouchPointerCancel(event(350, 100, { pointerId: 2, type: 'pointercancel' }));
   w.onPointerCancel(event(350, 100, { pointerId: 2 }));
   assert.equal(w.frameTouchPointers.size, 0);
   assert.equal(w.glide, null);
+});
+
+test('frame and canvas pinch use the same easing as wheel zoom and settle after release', () => {
+  for (const frame of [false, true]) {
+    const { widget: w, event, advance } = harness();
+    const wheelInput = harness();
+    const down = frame ? w.onFrameTouchPointerDown : w.onPointerDown;
+    const move = frame ? w.onFrameTouchPointerMove : w.onPointerMove;
+    const up = frame ? w.onFrameTouchPointerUp : w.onPointerUp;
+    down(event());
+    down(event(200, 100, { pointerId: 2 }));
+    move(event(220, 100, { pointerId: 2 }));
+    wheelInput.widget.enableWheelZoom();
+    wheelInput.wheel(-Math.log(1.2) / 0.002);
+    assert.equal(w.globe.zoom, 1.05);
+    assert.ok(Math.abs(w.globe.targetZoom - wheelInput.widget.globe.targetZoom) < 1e-9);
+    for (const elapsed of [1000 / 60, 1000 / 120, 1000 / 30]) {
+      advance(elapsed, true);
+      wheelInput.advance(elapsed, true);
+      assert.ok(Math.abs(w.globe.zoom - wheelInput.widget.globe.zoom) < 1e-9);
+      assert.ok(w.globe.zoom > 1.05 && w.globe.zoom < w.globe.targetZoom);
+    }
+    const releasedZoom = w.globe.zoom;
+    const target = w.globe.targetZoom;
+    up(event(220, 100, { pointerId: 2, type: 'pointerup' }));
+    up(event(100, 100, { type: 'pointerup' }));
+    assert.equal(w.globe.zoom, releasedZoom);
+    assert.equal(w.globe.targetZoom, target);
+    for (let i = 0; i < 60; i++) advance(1000 / 60, true);
+    assert.ok(Math.abs(w.globe.zoom - target) < 0.001);
+    assert.equal(w.glide, null);
+  }
+});
+
+test('frame and canvas pinch bound queued zoom and reverse from the displayed scale', () => {
+  for (const frame of [false, true]) {
+    const { widget: w, event, advance } = harness();
+    const down = frame ? w.onFrameTouchPointerDown : w.onPointerDown;
+    const move = frame ? w.onFrameTouchPointerMove : w.onPointerMove;
+    w.globe.zoom = w.globe.targetZoom = 4;
+    down(event());
+    down(event(200, 100, { pointerId: 2 }));
+    move(event(1100, 100, { pointerId: 2 }));
+    assert.equal(w.globe.targetZoom, 8);
+    advance(1000 / 60, true);
+    const displayedZoom = w.globe.zoom;
+    move(event(1000, 100, { pointerId: 2 }));
+    assert.ok(w.globe.targetZoom < displayedZoom);
+    advance(1000 / 60, true);
+    assert.ok(w.globe.zoom < displayedZoom);
+    move(event(101, 100, { pointerId: 2 }));
+    assert.equal(w.globe.targetZoom, w.globe.zoom / 2);
+    move(event(102, 100, { pointerId: 2 }));
+    assert.ok(w.globe.targetZoom > w.globe.zoom);
+  }
+});
+
+test('pinch respects zoom limits, recovers from coincident fingers, and keeps reduced motion immediate', () => {
+  for (const reducedMotion of [false, true]) {
+    for (const frame of [false, true]) {
+      const { widget: w, event } = harness({ reducedMotion });
+      const down = frame ? w.onFrameTouchPointerDown : w.onPointerDown;
+      const move = frame ? w.onFrameTouchPointerMove : w.onPointerMove;
+      w.globe.zoom = w.globe.targetZoom = w.globe.maxZoom;
+      down(event());
+      down(event(200, 100, { pointerId: 2 }));
+      move(event(300, 100, { pointerId: 2 }));
+      assert.equal(w.globe.targetZoom, w.globe.maxZoom);
+      move(event(280, 100, { pointerId: 2 }));
+      assert.ok(w.globe.targetZoom < w.globe.maxZoom);
+      if (reducedMotion) assert.equal(w.globe.zoom, w.globe.targetZoom);
+      else assert.equal(w.globe.zoom, w.globe.maxZoom);
+
+      w.globe.zoom = w.globe.targetZoom = w.globe.minZoom;
+      move(event(110, 100, { pointerId: 2 }));
+      assert.equal(w.globe.targetZoom, w.globe.minZoom);
+      move(event(120, 100, { pointerId: 2 }));
+      assert.ok(w.globe.targetZoom > w.globe.minZoom);
+      move(event(100, 100, { pointerId: 2 }));
+      const before = view(w);
+      move(event(110, 100, { pointerId: 2 }));
+      assert.deepEqual(view(w), before);
+      move(event(120, 100, { pointerId: 2 }));
+      assert.ok(Number.isFinite(w.globe.targetZoom));
+      assert.ok(w.globe.targetZoom > before.zoom);
+      if (reducedMotion) assert.equal(w.globe.zoom, w.globe.targetZoom);
+    }
+  }
 });
 
 test('zoom buttons take reciprocal 25% steps and all zoom paths respect limits', () => {
@@ -915,6 +1084,25 @@ test('host deactivation finishes release glide and a quick reactivation keeps on
   active(false);
   tick(1200);
   assert.equal(w.glide, null);
+  assert.equal(frames.size, 0);
+  assert.equal(root.dataset.globeAnimation, 'paused');
+});
+
+test('host deactivation lets a slow drag settle even without release glide', () => {
+  const { widget: w, window, frames, event, advance, tick, root } = harness({ hostControlled: true });
+  w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: true } });
+  w.onPointerDown(event());
+  w.onPointerMove(event(200, 150));
+  advance(100);
+  w.onPointerUp(event(200, 150));
+  assert.equal(w.glide, null);
+  w.onHostActivity({ source: window.parent, data: { type: 'portfolio-sample-activity', active: false } });
+  assert.equal(frames.size, 1);
+  const pitch = w.globe.pitch;
+  tick(16);
+  assert.ok(w.globe.pitch < pitch);
+  assert.equal(frames.size, 1);
+  tick(1000);
   assert.equal(frames.size, 0);
   assert.equal(root.dataset.globeAnimation, 'paused');
 });

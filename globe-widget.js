@@ -5,15 +5,18 @@
   // Drag, glide, and zoom input.
   const DRAG_THRESHOLD = 2;
   const TOUCH_DRAG_THRESHOLD = 4;
+  const DRAG_SENSITIVITY = 1;
+  const DRAG_EASE_TIME = 18;
+  const DRAG_SETTLE_DISTANCE = 0.01;
   const RELEASE_SAMPLE_DURATION = 80;
   const GLIDE_DECAY_TIME = 240;
-  const MAX_RELEASE_SPEED = 1.2;
+  const MAX_RELEASE_SPEED = 0.9;
   const GLIDE_STOP_SPEED = 0.008;
   const COUNTRY_TRAVEL_DURATION = 500;
   const ZOOM_STEP = 1.25;
   const DOUBLE_TAP_ZOOM_STEP = 1.5;
   const WHEEL_ZOOM_SENSITIVITY = 0.002;
-  const MAX_WHEEL_ZOOM_LEAD = 2;
+  const MAX_CONTINUOUS_ZOOM_LEAD = 2;
   // Tap recognition and search limits.
   const MOBILE_DOUBLE_TAP_DELAY = 150;
   const DESKTOP_DOUBLE_CLICK_DELAY = 150;
@@ -461,6 +464,7 @@
     let wheelDirection = 0;
     // Camera transitions, followed by the current camera position.
     let releaseGlide = null;
+    const dragMotion = { x: 0, y: 0 };
     let searchTravel = null;
     let zoomReturn = null;
     let centerTransition = null;
@@ -492,8 +496,8 @@
       startY: 0,
       activePointers: new Map(),
       pinching: false,
-      pinchStartDistance: 0,
-      pinchStartZoom: 0,
+      pinchLastDistance: 0,
+      pinchDirection: 0,
       threshold: DRAG_THRESHOLD,
       samples: [],
     };
@@ -1199,13 +1203,14 @@
     function interruptCamera(stopZoom = false) {
       interruptTravel(stopZoom);
       releaseGlide = null;
+      dragMotion.x = dragMotion.y = 0;
       globe.velocityX = 0;
       globe.velocityY = 0;
       isIntroPitchDriftActive = false;
     }
 
     function rotateByPixels(x, y) {
-      const degreesPerPixel = 180 / (Math.PI * Math.max(globe.baseRadius * globe.zoom, 1));
+      const degreesPerPixel = DRAG_SENSITIVITY * 180 / (Math.PI * Math.max(globe.baseRadius * globe.zoom, 1));
       globe.yaw += x * degreesPerPixel;
       globe.pitch = clamp(globe.pitch - y * degreesPerPixel, -90, 90);
     }
@@ -1455,8 +1460,25 @@
         if (progress === 1) zoomReturn = null;
       } else {
         // Ease ratios rather than absolute scale, so zoom feels consistent at
-        // every distance and closely follows continuous wheel input.
+        // every distance and closely follows continuous wheel and pinch input.
         globe.zoom *= Math.pow(globe.targetZoom / globe.zoom, getFrameLerpAmount(0.18, frameScale));
+      }
+
+      if (dragMotion.x || dragMotion.y) {
+        // Ease accumulated input on the animation clock, independently of how
+        // frequently the device sends pointer events. Keep the remaining travel
+        // after release so slow drags settle without losing their destination.
+        const amount = reducedMotionMediaQuery.matches ? 1 :
+          1 - Math.exp(-(elapsed || FRAME_DURATION) / DRAG_EASE_TIME);
+        const x = dragMotion.x * amount;
+        const y = dragMotion.y * amount;
+        dragMotion.x -= x;
+        dragMotion.y -= y;
+        rotateByPixels(x, y);
+        if (Math.hypot(dragMotion.x, dragMotion.y) < DRAG_SETTLE_DISTANCE) {
+          rotateByPixels(dragMotion.x, dragMotion.y);
+          dragMotion.x = dragMotion.y = 0;
+        }
       }
 
       if (releaseGlide) {
@@ -1508,7 +1530,7 @@
     }
 
     function hasCameraMotion() {
-      return Boolean(centerTransition || searchTravel || zoomReturn || releaseGlide ||
+      return Boolean(centerTransition || searchTravel || zoomReturn || releaseGlide || dragMotion.x || dragMotion.y ||
         Math.abs(globe.zoom - globe.targetZoom) >= 0.001);
     }
 
@@ -1885,7 +1907,7 @@
       // Convert wheel line/page units to CSS pixels before applying scale.
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
       const logDelta = clamp(-event.deltaY * unit * WHEEL_ZOOM_SENSITIVITY, -Math.log(ZOOM_STEP), Math.log(ZOOM_STEP));
-      const nextZoom = clamp(globe.targetZoom * Math.exp(logDelta), globe.zoom / MAX_WHEEL_ZOOM_LEAD, globe.zoom * MAX_WHEEL_ZOOM_LEAD);
+      const nextZoom = clamp(globe.targetZoom * Math.exp(logDelta), globe.zoom / MAX_CONTINUOUS_ZOOM_LEAD, globe.zoom * MAX_CONTINUOUS_ZOOM_LEAD);
       setTargetZoomFromUser(nextZoom);
     }
 
@@ -1945,6 +1967,25 @@
       return Math.hypot(activePoints[0].x - activePoints[1].x, activePoints[0].y - activePoints[1].y);
     }
 
+    function updatePinchZoom(distance) {
+      const previousDistance = pointer.pinchLastDistance;
+      pointer.pinchLastDistance = distance;
+      if (distance <= 0 || previousDistance <= 0 || distance === previousDistance) return;
+
+      const direction = Math.sign(distance - previousDistance);
+      // Reverse from the displayed scale, discarding any queued movement in
+      // the old direction. Incremental ratios also avoid sticking at limits.
+      if (pointer.pinchDirection && direction !== pointer.pinchDirection) globe.targetZoom = globe.zoom;
+      pointer.pinchDirection = direction;
+      const nextZoom = clamp(globe.targetZoom * (distance / previousDistance),
+        globe.zoom / MAX_CONTINUOUS_ZOOM_LEAD, globe.zoom * MAX_CONTINUOUS_ZOOM_LEAD);
+      if (reducedMotionMediaQuery.matches) {
+        setDirectUserZoom(nextZoom);
+      } else {
+        setTargetZoomFromUser(nextZoom);
+      }
+    }
+
     function beginPinchZoom() {
       clearPendingMobileCountryTap();
       cancelMobileDoubleTapGesture();
@@ -1952,8 +1993,8 @@
       pointer.samples = [];
       pointer.pinching = true;
       pointer.moved = true;
-      pointer.pinchStartDistance = getPinchDistance();
-      pointer.pinchStartZoom = globe.zoom;
+      pointer.pinchLastDistance = getPinchDistance();
+      pointer.pinchDirection = 0;
     }
 
     function getFramePinchDistance() {
@@ -1977,8 +2018,8 @@
       });
       pointer.activePointers.clear();
       pointer.pinching = false;
-      pointer.pinchStartDistance = getFramePinchDistance();
-      pointer.pinchStartZoom = globe.zoom;
+      pointer.pinchLastDistance = getFramePinchDistance();
+      pointer.pinchDirection = 0;
       updatePointerState(false);
 
       frameTouchPointers.forEach((_, pointerId) => {
@@ -2021,10 +2062,7 @@
         return;
       }
 
-      const pinchDistance = getFramePinchDistance();
-      if (pinchDistance > 0 && pointer.pinchStartDistance > 0 && frameTouchPointers.size >= 2) {
-        setDirectUserZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
-      }
+      if (frameTouchPointers.size >= 2) updatePinchZoom(getFramePinchDistance());
 
       event.preventDefault();
       event.stopPropagation();
@@ -2044,13 +2082,13 @@
 
       if (wasFramePinching) {
         suppressFrameClickUntil = Date.now() + 400;
-        pointer.pinchStartDistance = getFramePinchDistance();
-        pointer.pinchStartZoom = globe.zoom;
+        pointer.pinchLastDistance = getFramePinchDistance();
+        pointer.pinchDirection = 0;
       }
 
       if (wasFramePinching && frameTouchPointers.size < 2) {
         isFramePinching = false;
-        pointer.pinchStartDistance = 0;
+        pointer.pinchLastDistance = 0;
         updatePointerState(false);
         if (frameTouchPointers.size === 1 && event.type !== "pointercancel") {
           // Continue naturally with the remaining finger, starting exactly
@@ -2310,10 +2348,7 @@
 
       if (pointer.activePointers.size >= 2) {
         if (!pointer.pinching) beginPinchZoom();
-        const pinchDistance = getPinchDistance();
-        if (pointer.pinchStartDistance > 0) {
-          setDirectUserZoom(pointer.pinchStartZoom * (pinchDistance / pointer.pinchStartDistance));
-        }
+        updatePinchZoom(getPinchDistance());
         pointer.moved = true;
         return;
       }
@@ -2335,7 +2370,12 @@
         deltaX = travelX * (distance - pointer.threshold) / distance;
         deltaY = travelY * (distance - pointer.threshold) / distance;
       }
-      rotateByPixels(deltaX, deltaY);
+      if (reducedMotionMediaQuery.matches) {
+        rotateByPixels(deltaX, deltaY);
+      } else {
+        dragMotion.x += deltaX;
+        dragMotion.y += deltaY;
+      }
       sampleDrag(event.clientX, event.clientY, event.timeStamp);
     }
 
@@ -2354,6 +2394,7 @@
       if (cancelled) {
         clearPendingMobileCountryTap();
         releaseGlide = null;
+        dragMotion.x = dragMotion.y = 0;
       } else if (wasTap) {
         handleTap(event);
       } else if (wasDrag) {
