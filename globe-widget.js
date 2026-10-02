@@ -16,6 +16,7 @@
   const ZOOM_STEP = 1.25;
   const DOUBLE_TAP_ZOOM_STEP = 1.5;
   const WHEEL_ZOOM_SENSITIVITY = 0.002;
+  const TRACKPAD_PINCH_ZOOM_MULTIPLIER = 4;
   const MAX_CONTINUOUS_ZOOM_LEAD = 2;
   // Tap recognition and search limits.
   const MOBILE_DOUBLE_TAP_DELAY = 150;
@@ -1906,7 +1907,9 @@
       wheelDirection = direction;
       // Convert wheel line/page units to CSS pixels before applying scale.
       const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
-      const logDelta = clamp(-event.deltaY * unit * WHEEL_ZOOM_SENSITIVITY, -Math.log(ZOOM_STEP), Math.log(ZOOM_STEP));
+      // Trackpad pinch arrives as Ctrl+wheel with much smaller deltas than scrolling.
+      const sensitivity = WHEEL_ZOOM_SENSITIVITY * (event.ctrlKey ? TRACKPAD_PINCH_ZOOM_MULTIPLIER : 1);
+      const logDelta = clamp(-event.deltaY * unit * sensitivity, -Math.log(ZOOM_STEP), Math.log(ZOOM_STEP));
       const nextZoom = clamp(globe.targetZoom * Math.exp(logDelta), globe.zoom / MAX_CONTINUOUS_ZOOM_LEAD, globe.zoom * MAX_CONTINUOUS_ZOOM_LEAD);
       setTargetZoomFromUser(nextZoom);
     }

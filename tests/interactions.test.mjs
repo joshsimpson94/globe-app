@@ -188,8 +188,8 @@ function harness({ reducedMotion = false, desktopHover = false, startWidget = fa
       type: 'pointerdown', cancelable: true, prevented: false,
       preventDefault() { this.prevented = true; }, stopPropagation() {}, ...extra };
   }
-  function wheel(deltaY, deltaMode = 0) {
-    const e = event(0, 0, { deltaY, deltaMode });
+  function wheel(deltaY, deltaMode = 0, extra = {}) {
+    const e = event(0, 0, { deltaY, deltaMode, ...extra });
     widget.onWheel(e);
     return e;
   }
@@ -820,6 +820,54 @@ test('wheel bursts allow fast deliberate zoom while bounding queued movement and
   assert.ok(w.globe.targetZoom < w.globe.zoom);
   for (let i = 0; i < 100; i++) wheel(1000);
   assert.ok(w.globe.targetZoom >= w.globe.zoom / 2);
+});
+
+test('trackpad pinch normalizes small deltas to wheel strength and shares its easing', () => {
+  for (const delta of [-25, 25]) {
+    const pinch = harness();
+    const scroll = harness();
+    pinch.widget.enableWheelZoom();
+    scroll.widget.enableWheelZoom();
+    assert.equal(pinch.wheel(delta, 0, { ctrlKey: true }).prevented, true);
+    scroll.wheel(delta * 4);
+    assert.equal(pinch.widget.globe.targetZoom, scroll.widget.globe.targetZoom);
+    for (const elapsed of [1000 / 60, 1000 / 120, 1000 / 30]) {
+      pinch.advance(elapsed, true);
+      scroll.advance(elapsed, true);
+      assert.equal(pinch.widget.globe.zoom, scroll.widget.globe.zoom);
+    }
+  }
+});
+
+test('trackpad pinch matches touch scale and button steps while retaining bounds and reversal', () => {
+  const pinch = harness();
+  const touch = harness();
+  const button = harness();
+  pinch.widget.enableWheelZoom();
+  pinch.wheel(-Math.log(1.25) / 0.008, 0, { ctrlKey: true });
+  touch.widget.onPointerDown(touch.event());
+  touch.widget.onPointerDown(touch.event(200, 100, { pointerId: 2 }));
+  touch.widget.onPointerMove(touch.event(225, 100, { pointerId: 2 }));
+  button.widget.onZoomInClick();
+  assert.ok(Math.abs(pinch.widget.globe.targetZoom - touch.widget.globe.targetZoom) < 1e-9);
+  assert.ok(Math.abs(pinch.widget.globe.targetZoom - button.widget.globe.targetZoom) < 1e-9);
+
+  const w = pinch.widget;
+  w.globe.zoom = w.globe.targetZoom = 4;
+  pinch.wheel(-1000, 0, { ctrlKey: true });
+  assert.equal(w.globe.targetZoom, 5);
+  for (let i = 0; i < 100; i++) pinch.wheel(-1000, 0, { ctrlKey: true });
+  assert.equal(w.globe.targetZoom, w.globe.zoom * 2);
+  pinch.wheel(1, 0, { ctrlKey: true });
+  assert.ok(w.globe.targetZoom < w.globe.zoom);
+  for (let i = 0; i < 100; i++) pinch.wheel(1000, 0, { ctrlKey: true });
+  assert.equal(w.globe.targetZoom, w.globe.zoom / 2);
+  w.setDirectUserZoom(w.globe.maxZoom);
+  pinch.wheel(-1000, 0, { ctrlKey: true });
+  assert.equal(w.globe.targetZoom, w.globe.maxZoom);
+  w.setDirectUserZoom(w.globe.minZoom);
+  pinch.wheel(1000, 0, { ctrlKey: true });
+  assert.equal(w.globe.targetZoom, w.globe.minZoom);
 });
 
 test('pinch starts at displayed zoom, eases toward separation, and resets when fingers change', () => {
