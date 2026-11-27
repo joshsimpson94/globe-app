@@ -136,6 +136,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   left: var(--wf-globe-control-offset);
   z-index: 3;
   width: calc(100% - 2 * var(--wf-globe-control-offset) - var(--wf-globe-zoom-button-size) - var(--wf-globe-search-zoom-gap));
+  max-width: 280px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 10px;
