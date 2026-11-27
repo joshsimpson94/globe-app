@@ -3,15 +3,15 @@
 .wf-globe-widget {
   --wf-globe-text: #f7f8fa;
   --wf-globe-panel: rgba(22, 50, 77, 0.88);
-  --wf-globe-panel-border: rgba(145, 195, 231, 0.22);
+  --wf-globe-panel-border: rgba(145, 195, 231, 0.12);
   --wf-globe-panel-shadow: inset 0 1px 0 rgba(200, 233, 251, 0.07), 0 4px 16px rgba(0, 5, 14, 0.2);
   --wf-globe-action: #5984d1;
   --wf-globe-action-hover: #7199df;
   --wf-globe-control-hover: rgba(26, 76, 111, 0.82);
-  --wf-globe-control-hover-border: rgba(111, 185, 235, 0.5);
+  --wf-globe-control-hover-border: rgba(111, 185, 235, 0.28);
   --wf-globe-inset-hover: rgba(111, 185, 235, 0.2);
   --wf-globe-inset-selected: rgba(111, 185, 235, 0.32);
-  --wf-globe-border-width: 1px;
+  --wf-globe-border-width: 2px;
   /* Capsules, cards, and inset rows share a consistent family of curves. */
   --wf-globe-control-radius: 24px;
   --wf-globe-card-radius: 22px;
