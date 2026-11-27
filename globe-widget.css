@@ -156,6 +156,7 @@ html.wf-globe-widget--touch-gesture-active body * {
   background-position: 14px 50%;
   background-size: 20px 20px;
   color: var(--wf-globe-text);
+  caret-color: #87dffc;
   font-family: inherit;
   font-size: 16px;
   font-weight: 400;
