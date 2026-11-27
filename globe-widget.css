@@ -11,7 +11,7 @@
   --wf-globe-control-hover-border: rgba(111, 185, 235, 0.34);
   --wf-globe-inset-hover: rgba(111, 185, 235, 0.2);
   --wf-globe-inset-selected: rgba(111, 185, 235, 0.32);
-  --wf-globe-border-width: 2px;
+  --wf-globe-border-width: 1.5px;
   /* Capsules, cards, and inset rows share a consistent family of curves. */
   --wf-globe-control-radius: 24px;
   --wf-globe-card-radius: 22px;
